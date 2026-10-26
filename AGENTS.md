@@ -24,6 +24,12 @@ JAVA_HOME=/usr/lib/jvm/java-17-openjdk ./gradlew assembleDebug
 
 AGP 9.x, Gradle 9.x, compileSdk/targetSdk 36, minSdk 30 (needed for `AccessibilityService.takeScreenshot`), arm64-v8a only. Output: `app/build/outputs/apk/debug/app-debug.apk`. There are no tests; verify on a device.
 
+## CI and releases
+
+`.github/workflows/build.yml` builds the debug APK on every push to `main` and uploads it as an Actions artifact. A pushed `v*` tag also creates a GitHub release with the APK attached. The workflow signs with the owner's local `~/.android/debug.keystore`, stored base64-encoded in the repo secret `DEBUG_KEYSTORE_BASE64`. That way CI builds install over locally built ones; a different key would force an uninstall, which wipes settings and the `WRITE_SECURE_SETTINGS` grant.
+
+To release: bump `versionCode` and `versionName` in `app/build.gradle.kts`, commit, then `git tag vX.Y && git push origin main vX.Y`. The tag must match `versionName`.
+
 ## Testing on a device
 
 - `adb shell input keyevent` **bypasses** accessibility key filters, so it can't trigger the hotkey. Use `adb shell am broadcast -a com.local.ocrclip.CAPTURE` instead. The receiver is DUMP-protected: adb shell can send it, normal apps can't.
