@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">OCR Clip</string>
+    <string name="service_label">OCR Clip hotkey</string>
+    <string name="service_description">Listens for your chosen hotkey, takes a screenshot, reads the Japanese text in it with on-device OCR and copies it to the clipboard. Only the hotkey is intercepted; no other input or screen content is read or stored.</string>
+</resources>
