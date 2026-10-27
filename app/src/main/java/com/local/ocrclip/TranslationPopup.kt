@@ -54,7 +54,7 @@ class TranslationPopup(context: Context) : Overlay {
 
     private fun build(): View {
         val padding = dp(12)
-        val maxHeight = context.resources.displayMetrics.heightPixels * 45 / 100
+        val maxHeight = context.resources.displayMetrics.heightPixels * 85 / 100
         source = TextView(context).apply {
             textSize = 14f
             setPadding(0, dp(6), 0, 0)
@@ -70,7 +70,7 @@ class TranslationPopup(context: Context) : Overlay {
             addView(translation)
             addView(source)
         }
-        // Long passages scroll instead of covering more than about half the game.
+        // Grows with the text, but long passages scroll rather than hide the whole game.
         val scroll = object : ScrollView(context) {
             override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) =
                 super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(maxHeight, MeasureSpec.AT_MOST))
