@@ -55,6 +55,16 @@ class Prefs(context: Context) {
         get() = sp.getString("translate_url", DEFAULT_TRANSLATE_URL) ?: DEFAULT_TRANSLATE_URL
         set(v) = sp.edit().putString("translate_url", v).apply()
 
+    /** DeepL API key for the translate popup; empty means use the translator page instead. */
+    var deeplKey: String
+        get() = sp.getString("deepl_key", "") ?: ""
+        set(v) = sp.edit().putString("deepl_key", v).apply()
+
+    /** DeepL target language code, e.g. EN-US, EN-GB or DE. */
+    var deeplTarget: String
+        get() = sp.getString("deepl_target", DEFAULT_DEEPL_TARGET) ?: DEFAULT_DEEPL_TARGET
+        set(v) = sp.edit().putString("deepl_target", v).apply()
+
     var lastResult: String
         get() = sp.getString("last_result", "") ?: ""
         set(v) = sp.edit().putString("last_result", v).apply()
@@ -84,6 +94,7 @@ class Prefs(context: Context) {
         const val DICT_BROWSER = "browser"
         const val DEFAULT_DICTIONARY_URL = "https://jisho.hlorenzi.com/search/{text}"
         const val DEFAULT_TRANSLATE_URL = "https://www.deepl.com/translator#ja/en/{text}"
+        const val DEFAULT_DEEPL_TARGET = "EN-US"
 
         fun lastScreenshot(context: Context) = File(context.cacheDir, "last_screenshot.jpg")
 

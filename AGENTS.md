@@ -10,8 +10,10 @@ Single module, `app/`, package `com.local.ocrclip`. Plain Activities and Views, 
 |---|---|
 | `OcrService.kt` | Accessibility service: key filter for the two hotkeys (lookup and translate), `takeScreenshot`, crop, OCR dispatch, clipboard, dictionary. Also the `com.local.ocrclip.CAPTURE` test broadcast. |
 | `LensOcr.kt` | Google Lens OCR via `lensfrontend-pa.googleapis.com/v1/crupload` (owocr's "glens" request). The protobuf is hand-encoded and decoded, with no protobuf dependency. Field numbers come from Chromium's `lens_overlay_*.proto`. |
-| `DictionaryOverlay.kt` | `TYPE_ACCESSIBILITY_OVERLAY` WebView over the game. While it's open it takes key focus. The service keeps two: dictionary and translator. |
-| `Prefs.kt` | Everything in SharedPreferences file `settings`. Keys: `hotkey`, `translate_hotkey`, `enabled`, `engine` (`local`/`lens`), `keep_newlines`, `copy_to_clipboard`, `show_toast`, `dictionary_mode` (`off`/`overlay`/`browser`), `dictionary_url`, `translate_url`, `last_result`, `region_l/t/r/b`. |
+| `DictionaryOverlay.kt` | `TYPE_ACCESSIBILITY_OVERLAY` WebView over the game. While it's open it takes key focus. The service keeps two: dictionary and translator. Also defines the `Overlay` interface the key filter uses to close whichever window is open. |
+| `TranslationPopup.kt` | Compact, non-focusable overlay for DeepL API results, placed at the edge away from the capture region. |
+| `DeepL.kt` | DeepL API v2 `/translate` client (keys ending `:fx` use `api-free.deepl.com`). The translate hotkey uses it when `deepl_key` is set and falls back to the translator page on failure. |
+| `Prefs.kt` | Everything in SharedPreferences file `settings`. Keys: `hotkey`, `translate_hotkey`, `enabled`, `engine` (`local`/`lens`), `keep_newlines`, `copy_to_clipboard`, `show_toast`, `dictionary_mode` (`off`/`overlay`/`browser`), `dictionary_url`, `translate_url`, `deepl_key`, `deepl_target`, `last_result`, `region_l/t/r/b`. |
 | `MainActivity.kt` + `res/layout/activity_main.xml` | Settings screen. It also binds the hotkeys, through `OcrService.bindingHotkey`. |
 | `RegionActivity.kt` | Drag a capture region over the last screenshot, stored as fractions of the screen. |
 | `ServiceEnabler.kt` | Re-adds the service to `enabled_accessibility_services` using `WRITE_SECURE_SETTINGS`. `BootReceiver` runs on boot or update and re-checks at 30 s, 2 min and 5 min, because Retroid firmware resets the list on boot. |
@@ -35,6 +37,7 @@ To release: bump `versionCode` and `versionName` in `app/build.gradle.kts`, comm
 - `adb shell input keyevent` **bypasses** accessibility key filters, so it can't trigger the hotkey. Use `adb shell am broadcast -a com.local.ocrclip.CAPTURE` instead (add `--es action translate` for the translate path). The receiver is DUMP-protected: adb shell can send it, normal apps can't.
 - It's a debug build, so `run-as` works. Read the result with `adb shell run-as com.local.ocrclip cat shared_prefs/settings.xml` (`last_result`).
 - To preload settings, force-stop the app, then copy a prefs XML in with `run-as com.local.ocrclip sh -c "mkdir -p shared_prefs && cp /data/local/tmp/x.xml shared_prefs/settings.xml"`.
+- To edit a settings field over adb, open the app, scroll with `input swipe 640 800 640 100` (the Nova is landscape, 1280×960), find the field's bounds with `uiautomator dump`, tap it, then `input keycombination 113 29` (Ctrl+A) and `input text '<value>'`. Don't clear fields with `KEYCODE_DEL` on the Retroid: it inserted stray text instead.
 - Don't toggle the accessibility service on someone's device without asking. Opening the app re-enables it through `ServiceEnabler`.
 - Retroid devices kill background processes in standby. The app can end up force-stopped, so `BOOT_COMPLETED` and `MY_PACKAGE_REPLACED` may not arrive. Opening the app fixes it.
 

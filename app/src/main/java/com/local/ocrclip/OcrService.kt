@@ -34,7 +34,11 @@ class OcrService : AccessibilityService() {
     private var busy = false
     private lateinit var dictionary: DictionaryOverlay
     private lateinit var translator: DictionaryOverlay
-    private val openOverlay get() = listOf(dictionary, translator).firstOrNull { it.isShowing }
+    private lateinit var popup: TranslationPopup
+    private val openOverlay get() = listOf(dictionary, translator, popup).firstOrNull { it.isShowing }
+
+    /** Bumped per DeepL request, so a late answer for a closed or replaced popup is dropped. */
+    private var translation = 0
 
     /** What a capture does with the text once it's recognised. */
     private enum class Action { LOOKUP, TRANSLATE }
@@ -53,6 +57,7 @@ class OcrService : AccessibilityService() {
         network = Executors.newSingleThreadExecutor()
         dictionary = DictionaryOverlay(this)
         translator = DictionaryOverlay(this)
+        popup = TranslationPopup(this)
         registerReceiver(
             captureReceiver, IntentFilter(ACTION_CAPTURE), android.Manifest.permission.DUMP, null,
             Context.RECEIVER_EXPORTED,
@@ -66,6 +71,7 @@ class OcrService : AccessibilityService() {
         if (::network.isInitialized) network.shutdown()
         if (::dictionary.isInitialized) dictionary.destroy()
         if (::translator.isInitialized) translator.destroy()
+        if (::popup.isInitialized) popup.hide()
         super.onDestroy()
     }
 
@@ -157,9 +163,33 @@ class OcrService : AccessibilityService() {
         when (action) {
             Action.LOOKUP -> if (prefs.dictionaryMode != Prefs.DICT_OFF) openDictionary(text)
             // The translator always opens over the game; that's the point of its separate hotkey.
-            Action.TRANSLATE -> translator.show(Prefs.fillTemplate(prefs.translateUrl, text))
+            Action.TRANSLATE -> translate(text)
         }
         done(if (prefs.showToast) text else null)
+    }
+
+    /** DeepL API popup when a key is set, otherwise (or if the API fails) the translator page. */
+    private fun translate(text: String) {
+        val key = prefs.deeplKey
+        if (key.isEmpty()) {
+            translator.show(Prefs.fillTemplate(prefs.translateUrl, text))
+            return
+        }
+        // Keep the popup off the captured text: below it when the region is in the top half, otherwise above.
+        popup.show(text, atTop = (prefs.region?.centerY() ?: 1f) > 0.5f)
+        val request = ++translation
+        val target = prefs.deeplTarget
+        network.execute {
+            val result = runCatching { DeepL.translate(text, key, target) }
+            main.post {
+                if (request != translation || !popup.isShowing) return@post
+                result.onSuccess { popup.setTranslation(it) }.onFailure {
+                    popup.hide()
+                    Toast.makeText(this, "DeepL failed: ${it.message}", Toast.LENGTH_SHORT).show()
+                    translator.show(Prefs.fillTemplate(prefs.translateUrl, text))
+                }
+            }
+        }
     }
 
     private fun openDictionary(text: String) {

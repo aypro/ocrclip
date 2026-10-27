@@ -14,18 +14,24 @@ import android.widget.FrameLayout
 import android.widget.TextView
 import org.json.JSONObject
 
+/** A window the service shows over the game and closes on B, Back or a hotkey. */
+interface Overlay {
+    val isShowing: Boolean
+    fun hide()
+}
+
 /**
  * Web page (dictionary or translator) shown in an accessibility overlay window on top of the game, so the
  * game stays in front. The overlay takes key focus while open, so gamepad input goes to the page, not the game.
  * The service keeps one instance per page so each keeps its own loaded site.
  */
-class DictionaryOverlay(context: Context) {
+class DictionaryOverlay(context: Context) : Overlay {
     private val context = ContextThemeWrapper(context, android.R.style.Theme_DeviceDefault)
     private val windowManager = context.getSystemService(WindowManager::class.java)
     private var root: FrameLayout? = null
     private var webView: WebView? = null
 
-    val isShowing get() = root?.isAttachedToWindow == true
+    override val isShowing get() = root?.isAttachedToWindow == true
 
     fun show(url: String) {
         val view = root ?: build().also { root = it }
@@ -49,7 +55,7 @@ class DictionaryOverlay(context: Context) {
         }
     }
 
-    fun hide() {
+    override fun hide() {
         if (isShowing) windowManager.removeView(root)
     }
 

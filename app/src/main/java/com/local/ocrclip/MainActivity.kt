@@ -75,15 +75,19 @@ class MainActivity : Activity() {
             check(dictModes.entries.first { it.value == prefs.dictionaryMode }.key)
             setOnCheckedChangeListener { _, id -> prefs.dictionaryMode = dictModes.getValue(id) }
         }
-        bindUrl(R.id.dictionaryUrl, prefs.dictionaryUrl) {
+        bindText(R.id.dictionaryUrl, prefs.dictionaryUrl) {
             prefs.dictionaryUrl = it.ifEmpty { Prefs.DEFAULT_DICTIONARY_URL }
         }
-        bindUrl(R.id.translateUrl, prefs.translateUrl) {
+        bindText(R.id.translateUrl, prefs.translateUrl) {
             prefs.translateUrl = it.ifEmpty { Prefs.DEFAULT_TRANSLATE_URL }
+        }
+        bindText(R.id.deeplKey, prefs.deeplKey) { prefs.deeplKey = it }
+        bindText(R.id.deeplTarget, prefs.deeplTarget) {
+            prefs.deeplTarget = it.uppercase().ifEmpty { Prefs.DEFAULT_DEEPL_TARGET }
         }
     }
 
-    private fun bindUrl(id: Int, initial: String, onChange: (String) -> Unit) {
+    private fun bindText(id: Int, initial: String, onChange: (String) -> Unit) {
         findViewById<EditText>(id).apply {
             setText(initial)
             addTextChangedListener(object : TextWatcher {
@@ -153,7 +157,8 @@ class MainActivity : Activity() {
         else "Hotkey: ${Prefs.keyName(prefs.hotkey)}\nOther apps won't receive this button while the hotkey is active."
         translateHotkeyLabel.text = if (binding == Binding.TRANSLATE) waiting
         else "Translate hotkey: ${Prefs.keyName(prefs.translateHotkey)}\nReads the text like the hotkey, then shows " +
-            "the translator over the game (B, Back or either hotkey closes it)."
+            "the DeepL translation in a small popup (with an API key) or the translator page over the game. " +
+            "B, Back or either hotkey closes it."
 
         regionLabel.text = prefs.region?.let {
             "Region: %d%%–%d%% across, %d%%–%d%% down".format(

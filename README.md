@@ -16,7 +16,9 @@ It runs as an accessibility service: hotkey → screenshot → optional crop to 
   - **Dictionary overlay**: shows a WebView over the game. B, Back, the hotkey or tapping outside it closes it.
   - **Browser**: opens the dictionary in your browser.
 - **Dictionary URL template**: `{text}` is replaced with the captured text, e.g. `https://jisho.hlorenzi.com/search/{text}` (the default). The overlay adds ` OCRClip/1` to its user agent, so a self-hosted jisho can switch to a compact layout.
-- **Translate hotkey** (optional): a second button that reads the text the same way, then shows DeepL over the game instead of the dictionary. B, Back, either hotkey or tapping outside it closes it. The URL template defaults to `https://www.deepl.com/translator#ja/en/{text}`; change `en` to another language code (e.g. `de`), or point it at another translator.
+- **Translate hotkey** (optional): a second button that reads the text the same way, then translates it with DeepL instead of opening the dictionary.
+  - **With a DeepL API key** (the [free API plan](https://www.deepl.com/pro-api) covers 500,000 characters a month): a compact popup with the text and its translation appears at the top or bottom edge, whichever is away from the capture region. The game keeps the gamepad while it's open. B, Back, either hotkey or a tap closes it. The target language defaults to `EN-US`.
+  - **Without a key, or if the API call fails**: the DeepL web page opens over the game instead. The URL template defaults to `https://www.deepl.com/translator#ja/en/{text}`; change `en` to another language code (e.g. `de`), or point it at another translator.
 - **Survives reboots**: Retroid firmware turns off third-party accessibility services on every boot. With a one-time adb grant, OCR Clip turns itself back on.
 
 ## Build
@@ -37,7 +39,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell pm grant com.local.ocrclip android.permission.WRITE_SECURE_SETTINGS
 ```
 
-Open the app and turn on **OCR Clip hotkey** in accessibility settings, or let the app turn it on if you made the grant above. Then press **Set hotkey** and choose the OCR engine and the after-capture action. For translations, also press **Set translate hotkey** and pick a different button.
+Open the app and turn on **OCR Clip hotkey** in accessibility settings, or let the app turn it on if you made the grant above. Then press **Set hotkey** and choose the OCR engine and the after-capture action. For translations, also press **Set translate hotkey**, pick a different button, and paste your DeepL API key if you have one. Typing a key on a handheld is fiddly; `adb shell input text '<key>'` with the key field focused works.
 
 To use a capture region, press the hotkey in a game once, then use **Pick region** in the app to drag over that screenshot.
 

@@ -193,6 +193,22 @@
             android:importantForAutofill="no"
             android:inputType="textUri" />
 
+        <EditText
+            android:id="@+id/deeplKey"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="DeepL API key (empty = use the translator URL)"
+            android:importantForAutofill="no"
+            android:inputType="textNoSuggestions" />
+
+        <EditText
+            android:id="@+id/deeplTarget"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="DeepL target language, e.g. EN-US, EN-GB, DE"
+            android:importantForAutofill="no"
+            android:inputType="textCapCharacters|textNoSuggestions" />
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
