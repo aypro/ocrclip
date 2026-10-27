@@ -19,8 +19,14 @@ class MainActivity : Activity() {
     private lateinit var prefs: Prefs
     private lateinit var serviceStatus: TextView
     private lateinit var hotkeyLabel: TextView
+    private lateinit var translateHotkeyLabel: TextView
     private lateinit var regionLabel: TextView
     private lateinit var lastResult: TextView
+
+    /** Which hotkey the next key press binds, or null when not binding. */
+    private var binding: Binding? = null
+
+    private enum class Binding { LOOKUP, TRANSLATE }
 
     private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> refresh() }
 
@@ -30,15 +36,17 @@ class MainActivity : Activity() {
         prefs = Prefs(this)
         serviceStatus = findViewById(R.id.serviceStatus)
         hotkeyLabel = findViewById(R.id.hotkeyLabel)
+        translateHotkeyLabel = findViewById(R.id.translateHotkeyLabel)
         regionLabel = findViewById(R.id.regionLabel)
         lastResult = findViewById(R.id.lastResult)
 
         findViewById<Button>(R.id.openAccessibility).setOnClickListener {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
-        findViewById<Button>(R.id.setHotkey).setOnClickListener {
-            OcrService.bindingHotkey = true
-            refresh()
+        findViewById<Button>(R.id.setHotkey).setOnClickListener { startBinding(Binding.LOOKUP) }
+        findViewById<Button>(R.id.setTranslateHotkey).setOnClickListener { startBinding(Binding.TRANSLATE) }
+        findViewById<Button>(R.id.clearTranslateHotkey).setOnClickListener {
+            prefs.translateHotkey = KeyEvent.KEYCODE_UNKNOWN
         }
         findViewById<Button>(R.id.pickRegion).setOnClickListener {
             if (Prefs.lastScreenshot(this).exists()) {
@@ -67,16 +75,34 @@ class MainActivity : Activity() {
             check(dictModes.entries.first { it.value == prefs.dictionaryMode }.key)
             setOnCheckedChangeListener { _, id -> prefs.dictionaryMode = dictModes.getValue(id) }
         }
-        findViewById<EditText>(R.id.dictionaryUrl).apply {
-            setText(prefs.dictionaryUrl)
+        bindUrl(R.id.dictionaryUrl, prefs.dictionaryUrl) {
+            prefs.dictionaryUrl = it.ifEmpty { Prefs.DEFAULT_DICTIONARY_URL }
+        }
+        bindUrl(R.id.translateUrl, prefs.translateUrl) {
+            prefs.translateUrl = it.ifEmpty { Prefs.DEFAULT_TRANSLATE_URL }
+        }
+    }
+
+    private fun bindUrl(id: Int, initial: String, onChange: (String) -> Unit) {
+        findViewById<EditText>(id).apply {
+            setText(initial)
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-                override fun afterTextChanged(s: Editable) {
-                    prefs.dictionaryUrl = s.toString().trim().ifEmpty { Prefs.DEFAULT_DICTIONARY_URL }
-                }
+                override fun afterTextChanged(s: Editable) = onChange(s.toString().trim())
             })
         }
+    }
+
+    private fun startBinding(target: Binding) {
+        binding = target
+        OcrService.bindingHotkey = true
+        refresh()
+    }
+
+    private fun stopBinding() {
+        binding = null
+        OcrService.bindingHotkey = false
     }
 
     private fun bindSwitch(id: Int, initial: Boolean, onChange: (Boolean) -> Unit) {
@@ -94,14 +120,22 @@ class MainActivity : Activity() {
     override fun onPause() {
         super.onPause()
         prefs.sp.unregisterOnSharedPreferenceChangeListener(prefsListener)
-        OcrService.bindingHotkey = false
+        stopBinding()
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (!OcrService.bindingHotkey) return super.dispatchKeyEvent(event)
+        val target = binding ?: return super.dispatchKeyEvent(event)
         if (event.action == KeyEvent.ACTION_DOWN) {
-            if (event.keyCode != KeyEvent.KEYCODE_BACK) prefs.hotkey = event.keyCode
-            OcrService.bindingHotkey = false
+            val code = event.keyCode
+            val other = if (target == Binding.LOOKUP) prefs.translateHotkey else prefs.hotkey
+            when {
+                code == KeyEvent.KEYCODE_BACK -> {}
+                code == other ->
+                    Toast.makeText(this, "${Prefs.keyName(code)} is already the other hotkey", Toast.LENGTH_SHORT).show()
+                target == Binding.LOOKUP -> prefs.hotkey = code
+                else -> prefs.translateHotkey = code
+            }
+            stopBinding()
             refresh()
         }
         return true
@@ -114,8 +148,12 @@ class MainActivity : Activity() {
             (if (ServiceEnabler.canEnable(this)) "\nAuto re-enable after reboot: on"
             else "\nAuto re-enable after reboot: off (needs a one-time adb grant)")
 
-        hotkeyLabel.text = if (OcrService.bindingHotkey) "Press the button you want to use… (Back cancels)"
+        val waiting = "Press the button you want to use… (Back cancels)"
+        hotkeyLabel.text = if (binding == Binding.LOOKUP) waiting
         else "Hotkey: ${Prefs.keyName(prefs.hotkey)}\nOther apps won't receive this button while the hotkey is active."
+        translateHotkeyLabel.text = if (binding == Binding.TRANSLATE) waiting
+        else "Translate hotkey: ${Prefs.keyName(prefs.translateHotkey)}\nReads the text like the hotkey, then shows " +
+            "the translator over the game (B, Back or either hotkey closes it)."
 
         regionLabel.text = prefs.region?.let {
             "Region: %d%%–%d%% across, %d%%–%d%% down".format(

@@ -2,6 +2,7 @@ package com.local.ocrclip
 
 import android.content.Context
 import android.graphics.RectF
+import android.net.Uri
 import android.view.KeyEvent
 import java.io.File
 
@@ -11,6 +12,11 @@ class Prefs(context: Context) {
     var hotkey: Int
         get() = sp.getInt("hotkey", KeyEvent.KEYCODE_UNKNOWN)
         set(v) = sp.edit().putInt("hotkey", v).apply()
+
+    /** Optional second hotkey: OCR, then show the translator overlay. KEYCODE_UNKNOWN when unset. */
+    var translateHotkey: Int
+        get() = sp.getInt("translate_hotkey", KeyEvent.KEYCODE_UNKNOWN)
+        set(v) = sp.edit().putInt("translate_hotkey", v).apply()
 
     var enabled: Boolean
         get() = sp.getBoolean("enabled", true)
@@ -44,6 +50,11 @@ class Prefs(context: Context) {
         get() = sp.getString("dictionary_url", DEFAULT_DICTIONARY_URL) ?: DEFAULT_DICTIONARY_URL
         set(v) = sp.edit().putString("dictionary_url", v).apply()
 
+    /** Same `{text}` rules as [dictionaryUrl]; used by the translate hotkey. */
+    var translateUrl: String
+        get() = sp.getString("translate_url", DEFAULT_TRANSLATE_URL) ?: DEFAULT_TRANSLATE_URL
+        set(v) = sp.edit().putString("translate_url", v).apply()
+
     var lastResult: String
         get() = sp.getString("last_result", "") ?: ""
         set(v) = sp.edit().putString("last_result", v).apply()
@@ -72,8 +83,15 @@ class Prefs(context: Context) {
         const val DICT_OVERLAY = "overlay"
         const val DICT_BROWSER = "browser"
         const val DEFAULT_DICTIONARY_URL = "https://jisho.hlorenzi.com/search/{text}"
+        const val DEFAULT_TRANSLATE_URL = "https://www.deepl.com/translator#ja/en/{text}"
 
         fun lastScreenshot(context: Context) = File(context.cacheDir, "last_screenshot.jpg")
+
+        /** `{text}` in [template] is replaced with the URL-encoded text; without it the text is appended. */
+        fun fillTemplate(template: String, text: String): String {
+            val encoded = Uri.encode(text)
+            return if ("{text}" in template) template.replace("{text}", encoded) else template + encoded
+        }
 
         fun keyName(code: Int): String =
             if (code == KeyEvent.KEYCODE_UNKNOWN) "not set"

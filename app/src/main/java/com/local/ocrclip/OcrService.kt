@@ -32,12 +32,18 @@ class OcrService : AccessibilityService() {
     private lateinit var network: ExecutorService
     private val main = Handler(Looper.getMainLooper())
     private var busy = false
-    private lateinit var overlay: DictionaryOverlay
+    private lateinit var dictionary: DictionaryOverlay
+    private lateinit var translator: DictionaryOverlay
+    private val openOverlay get() = listOf(dictionary, translator).firstOrNull { it.isShowing }
 
-    // Lets `adb shell am broadcast -a com.local.ocrclip.CAPTURE` trigger a capture for testing, since
-    // adb-injected keys bypass accessibility key filtering. DUMP is held by the shell but no normal app.
+    /** What a capture does with the text once it's recognised. */
+    private enum class Action { LOOKUP, TRANSLATE }
+
+    // Lets `adb shell am broadcast -a com.local.ocrclip.CAPTURE [--es action translate]` trigger a capture for
+    // testing, since adb-injected keys bypass accessibility key filtering. DUMP is held by the shell but no normal app.
     private val captureReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) = capture()
+        override fun onReceive(context: Context, intent: Intent) =
+            capture(if (intent.getStringExtra("action") == "translate") Action.TRANSLATE else Action.LOOKUP)
     }
 
     override fun onServiceConnected() {
@@ -45,7 +51,8 @@ class OcrService : AccessibilityService() {
         recognizer = TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build())
         worker = Executors.newSingleThreadExecutor()
         network = Executors.newSingleThreadExecutor()
-        overlay = DictionaryOverlay(this)
+        dictionary = DictionaryOverlay(this)
+        translator = DictionaryOverlay(this)
         registerReceiver(
             captureReceiver, IntentFilter(ACTION_CAPTURE), android.Manifest.permission.DUMP, null,
             Context.RECEIVER_EXPORTED,
@@ -57,7 +64,8 @@ class OcrService : AccessibilityService() {
         if (::recognizer.isInitialized) recognizer.close()
         if (::worker.isInitialized) worker.shutdown()
         if (::network.isInitialized) network.shutdown()
-        if (::overlay.isInitialized) overlay.destroy()
+        if (::dictionary.isInitialized) dictionary.destroy()
+        if (::translator.isInitialized) translator.destroy()
         super.onDestroy()
     }
 
@@ -67,24 +75,28 @@ class OcrService : AccessibilityService() {
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
         if (bindingHotkey) return false
-        val hotkey = prefs.hotkey
-        if (overlay.isShowing) {
-            val closes = event.keyCode == hotkey || event.keyCode == KeyEvent.KEYCODE_BACK ||
-                event.keyCode == KeyEvent.KEYCODE_BUTTON_B
+        val code = event.keyCode
+        if (code == KeyEvent.KEYCODE_UNKNOWN) return false
+        val action = when (code) {
+            prefs.hotkey -> Action.LOOKUP
+            prefs.translateHotkey -> Action.TRANSLATE
+            else -> null
+        }
+        openOverlay?.let { open ->
+            val closes = action != null || code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_BUTTON_B
             if (!closes) return false
-            if (event.action == KeyEvent.ACTION_DOWN) overlay.hide()
+            if (event.action == KeyEvent.ACTION_DOWN) open.hide()
             return true
         }
-        if (!prefs.enabled) return false
-        if (hotkey == KeyEvent.KEYCODE_UNKNOWN || event.keyCode != hotkey) return false
-        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) capture()
+        if (!prefs.enabled || action == null) return false
+        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) capture(action)
         // Swallow both down and up so the foreground app never sees the hotkey.
         return true
     }
 
-    private fun capture() {
-        if (overlay.isShowing) {
-            overlay.hide()
+    private fun capture(action: Action) {
+        openOverlay?.let {
+            it.hide()
             return
         }
         if (busy) return
@@ -100,7 +112,7 @@ class OcrService : AccessibilityService() {
                     return
                 }
                 try {
-                    recognize(crop(bitmap, prefs.region))
+                    recognize(crop(bitmap, prefs.region), action)
                 } catch (e: Exception) {
                     done("OCR failed: ${e.message}")
                     return
@@ -118,21 +130,21 @@ class OcrService : AccessibilityService() {
         })
     }
 
-    private fun recognize(image: Bitmap) {
+    private fun recognize(image: Bitmap, action: Action) {
         if (prefs.engine == Prefs.ENGINE_LENS) {
             network.execute {
                 runCatching { LensOcr.recognize(image) }
-                    .onSuccess { lines -> main.post { deliver(format(lines, prefs.keepNewlines)) } }
+                    .onSuccess { lines -> main.post { deliver(format(lines, prefs.keepNewlines), action) } }
                     .onFailure { done("Google Lens failed: ${it.message}") }
             }
         } else {
             recognizer.process(InputImage.fromBitmap(image, 0))
-                .addOnSuccessListener { text -> deliver(format(mlKitLines(text), prefs.keepNewlines)) }
+                .addOnSuccessListener { text -> deliver(format(mlKitLines(text), prefs.keepNewlines), action) }
                 .addOnFailureListener { done("OCR failed: ${it.message}") }
         }
     }
 
-    private fun deliver(text: String) {
+    private fun deliver(text: String, action: Action) {
         if (text.isEmpty()) {
             done("No text found")
             return
@@ -142,16 +154,18 @@ class OcrService : AccessibilityService() {
                 .setPrimaryClip(ClipData.newPlainText("OCR", text))
         }
         prefs.lastResult = text
-        if (prefs.dictionaryMode != Prefs.DICT_OFF) openDictionary(text)
+        when (action) {
+            Action.LOOKUP -> if (prefs.dictionaryMode != Prefs.DICT_OFF) openDictionary(text)
+            // The translator always opens over the game; that's the point of its separate hotkey.
+            Action.TRANSLATE -> translator.show(Prefs.fillTemplate(prefs.translateUrl, text))
+        }
         done(if (prefs.showToast) text else null)
     }
 
     private fun openDictionary(text: String) {
-        val template = prefs.dictionaryUrl
-        val encoded = Uri.encode(text)
-        val url = if ("{text}" in template) template.replace("{text}", encoded) else template + encoded
+        val url = Prefs.fillTemplate(prefs.dictionaryUrl, text)
         if (prefs.dictionaryMode == Prefs.DICT_OVERLAY) {
-            overlay.show(url)
+            dictionary.show(url)
             return
         }
         try {

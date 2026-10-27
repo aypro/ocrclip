@@ -156,6 +156,46 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="Translate hotkey"
+            android:textAppearance="?android:attr/textAppearanceMedium" />
+
+        <TextView
+            android:id="@+id/translateHotkeyLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/setTranslateHotkey"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Set translate hotkey" />
+
+            <Button
+                android:id="@+id/clearTranslateHotkey"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Clear" />
+        </LinearLayout>
+
+        <EditText
+            android:id="@+id/translateUrl"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Translator URL, {text} = captured text"
+            android:importantForAutofill="no"
+            android:inputType="textUri" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
             android:text="Last result"
             android:textAppearance="?android:attr/textAppearanceSmall" />

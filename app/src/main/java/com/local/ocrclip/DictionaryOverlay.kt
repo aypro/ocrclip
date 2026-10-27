@@ -12,10 +12,12 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.TextView
+import org.json.JSONObject
 
 /**
- * Dictionary page shown in an accessibility overlay window on top of the game, so the game stays
- * in front. The overlay takes key focus while open, so gamepad input goes to the page, not the game.
+ * Web page (dictionary or translator) shown in an accessibility overlay window on top of the game, so the
+ * game stays in front. The overlay takes key focus while open, so gamepad input goes to the page, not the game.
+ * The service keeps one instance per page so each keeps its own loaded site.
  */
 class DictionaryOverlay(context: Context) {
     private val context = ContextThemeWrapper(context, android.R.style.Theme_DeviceDefault)
@@ -27,7 +29,15 @@ class DictionaryOverlay(context: Context) {
 
     fun show(url: String) {
         val view = root ?: build().also { root = it }
-        webView!!.loadUrl(url)
+        val web = webView!!
+        val current = web.url
+        if ('#' in url && current != null && current.substringBefore('#') == url.substringBefore('#')) {
+            // DeepL keeps the text in the fragment. A fragment-only change doesn't reload the page and a
+            // single-page app may ignore it, so force a full load at the new URL.
+            web.evaluateJavascript("location.replace(${JSONObject.quote(url)}); location.reload();", null)
+        } else {
+            web.loadUrl(url)
+        }
         if (!isShowing) {
             windowManager.addView(view, WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
