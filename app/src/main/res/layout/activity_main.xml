@@ -139,6 +139,12 @@
                 android:text="Show dictionary over the game (B, Back or the hotkey closes it)" />
 
             <RadioButton
+                android:id="@+id/dictLocal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Look up in your Yomitan dictionaries over the game, offline (tap a character or use D-pad left/right to pick the word)" />
+
+            <RadioButton
                 android:id="@+id/dictBrowser"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -152,6 +158,24 @@
             android:hint="Dictionary URL, {text} = captured text"
             android:importantForAutofill="no"
             android:inputType="textUri" />
+
+        <TextView
+            android:id="@+id/dictionaryStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp" />
+
+        <Button
+            android:id="@+id/loadDictionary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Load dictionary database" />
+
+        <LinearLayout
+            android:id="@+id/dictionaryList"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
 
         <TextView
             android:layout_width="match_parent"

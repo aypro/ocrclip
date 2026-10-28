@@ -38,7 +38,7 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("show_toast", true)
         set(v) = sp.edit().putBoolean("show_toast", v).apply()
 
-    /** What happens after a capture: DICT_OFF, DICT_OVERLAY or DICT_BROWSER. */
+    /** What happens after a capture: DICT_OFF, DICT_OVERLAY, DICT_LOCAL or DICT_BROWSER. */
     var dictionaryMode: String
         get() = sp.getString("dictionary_mode", null)
             // Older builds only had an on/off switch that opened the browser.
@@ -49,6 +49,19 @@ class Prefs(context: Context) {
     var dictionaryUrl: String
         get() = sp.getString("dictionary_url", DEFAULT_DICTIONARY_URL) ?: DEFAULT_DICTIONARY_URL
         set(v) = sp.edit().putString("dictionary_url", v).apply()
+
+    /**
+     * Local dictionary titles in display order; ones not listed follow in build order. Kept by title, not in the
+     * database, so a database rebuilt on the PC keeps the user's order.
+     */
+    var dictionaryOrder: List<String>
+        get() = (sp.getString("dictionary_order", "") ?: "").split('\n').filter { it.isNotEmpty() }
+        set(v) = sp.edit().putString("dictionary_order", v.joinToString("\n")).apply()
+
+    /** Titles of local dictionaries the user turned off. */
+    var disabledDictionaries: Set<String>
+        get() = sp.getStringSet("disabled_dictionaries", null)?.toSet() ?: emptySet()
+        set(v) = sp.edit().putStringSet("disabled_dictionaries", v).apply()
 
     /** Same `{text}` rules as [dictionaryUrl]; used by the translate hotkey. */
     var translateUrl: String
@@ -91,6 +104,7 @@ class Prefs(context: Context) {
         const val ENGINE_LENS = "lens"
         const val DICT_OFF = "off"
         const val DICT_OVERLAY = "overlay"
+        const val DICT_LOCAL = "local"
         const val DICT_BROWSER = "browser"
         const val DEFAULT_DICTIONARY_URL = "https://jisho.hlorenzi.com/search/{text}"
         const val DEFAULT_TRANSLATE_URL = "https://www.deepl.com/translator#ja/en/{text}"

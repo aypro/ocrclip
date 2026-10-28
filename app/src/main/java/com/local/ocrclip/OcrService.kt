@@ -34,8 +34,10 @@ class OcrService : AccessibilityService() {
     private var busy = false
     private lateinit var dictionary: DictionaryOverlay
     private lateinit var translator: DictionaryOverlay
+    private lateinit var localDictionary: LocalDictionary
+    private lateinit var lookup: DictionaryOverlay
     private lateinit var popup: TranslationPopup
-    private val openOverlay get() = listOf(dictionary, translator, popup).firstOrNull { it.isShowing }
+    private val openOverlay get() = listOf(dictionary, translator, lookup, popup).firstOrNull { it.isShowing }
 
     /** Bumped per DeepL request, so a late answer for a closed or replaced popup is dropped. */
     private var translation = 0
@@ -57,6 +59,8 @@ class OcrService : AccessibilityService() {
         network = Executors.newSingleThreadExecutor()
         dictionary = DictionaryOverlay(this)
         translator = DictionaryOverlay(this)
+        localDictionary = LocalDictionary(this)
+        lookup = DictionaryOverlay(this, localDictionary)
         popup = TranslationPopup(this)
         registerReceiver(
             captureReceiver, IntentFilter(ACTION_CAPTURE), android.Manifest.permission.DUMP, null,
@@ -71,6 +75,8 @@ class OcrService : AccessibilityService() {
         if (::network.isInitialized) network.shutdown()
         if (::dictionary.isInitialized) dictionary.destroy()
         if (::translator.isInitialized) translator.destroy()
+        if (::lookup.isInitialized) lookup.destroy()
+        if (::localDictionary.isInitialized) localDictionary.close()
         if (::popup.isInitialized) popup.hide()
         super.onDestroy()
     }
@@ -193,6 +199,10 @@ class OcrService : AccessibilityService() {
     }
 
     private fun openDictionary(text: String) {
+        if (prefs.dictionaryMode == Prefs.DICT_LOCAL) {
+            lookup.showPage(LookupPage.page(text))
+            return
+        }
         val url = Prefs.fillTemplate(prefs.dictionaryUrl, text)
         if (prefs.dictionaryMode == Prefs.DICT_OVERLAY) {
             dictionary.show(url)

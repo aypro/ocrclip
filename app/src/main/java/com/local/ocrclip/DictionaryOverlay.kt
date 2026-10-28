@@ -21,11 +21,12 @@ interface Overlay {
 }
 
 /**
- * Web page (dictionary or translator) shown in an accessibility overlay window on top of the game, so the
- * game stays in front. The overlay takes key focus while open, so gamepad input goes to the page, not the game.
- * The service keeps one instance per page so each keeps its own loaded site.
+ * Web page (dictionary, translator or the offline lookup page) shown in an accessibility overlay window on top of the
+ * game, so the game stays in front. The overlay takes key focus while open, so gamepad input goes to the page, not the
+ * game. The service keeps one instance per page so each keeps its own loaded site. [bridge] is exposed to the page as
+ * `OCRClip`; only the offline lookup overlay has one, since it never loads a website.
  */
-class DictionaryOverlay(context: Context) : Overlay {
+class DictionaryOverlay(context: Context, private val bridge: Any? = null) : Overlay {
     private val context = ContextThemeWrapper(context, android.R.style.Theme_DeviceDefault)
     private val windowManager = context.getSystemService(WindowManager::class.java)
     private var root: FrameLayout? = null
@@ -44,6 +45,20 @@ class DictionaryOverlay(context: Context) : Overlay {
         } else {
             web.loadUrl(url)
         }
+        attach(view)
+    }
+
+    /** Shows a page built in the app instead of a website. */
+    fun showPage(html: String) {
+        val view = root ?: build().also { root = it }
+        val web = webView!!
+        web.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
+        attach(view)
+        // The page handles the D-pad itself, so it needs focus rather than the close button.
+        web.requestFocus()
+    }
+
+    private fun attach(view: FrameLayout) {
         if (!isShowing) {
             windowManager.addView(view, WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
@@ -78,6 +93,7 @@ class DictionaryOverlay(context: Context) : Overlay {
             settings.userAgentString = "${settings.userAgentString} OCRClip/1"
             webViewClient = WebViewClient() // keep link clicks inside the overlay
             setBackgroundColor(Color.BLACK)
+            bridge?.let { addJavascriptInterface(it, "OCRClip") }
         }
         webView = web
         val close = TextView(context).apply {
