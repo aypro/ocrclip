@@ -76,7 +76,9 @@ class TranslationPopup(context: Context) : Overlay {
                 super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(maxHeight, MeasureSpec.AT_MOST))
         }.apply {
             background = GradientDrawable().apply {
-                setColor(0xF5202020.toInt())
+                setColor(Color.BLACK)
+                // Black on a dark game scene would have no visible edge.
+                setStroke(dp(1), 0xFF444444.toInt())
                 cornerRadius = dp(8).toFloat()
             }
             addView(content)

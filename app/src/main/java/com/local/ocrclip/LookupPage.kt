@@ -159,8 +159,8 @@ $SCRIPT
     private const val SMALL_KANA = "ゃゅょぁぃぅぇぉゎャュョァィゥェォヮ"
 
     private const val CSS = """
-body { margin: 0; background: #111; color: #eee; font: 18px/1.5 sans-serif; }
-#text { position: sticky; top: 0; background: #222; padding: 8px 12px; font-size: 26px; line-height: 1.7;
+body { margin: 0; background: #000; color: #eee; font: 18px/1.5 sans-serif; }
+#text { position: sticky; top: 0; background: #000; padding: 8px 12px; font-size: 26px; line-height: 1.7;
     border-bottom: 1px solid #444; max-height: 35vh; overflow-y: auto; }
 #text span.match { background: #2d4f6c; }
 #text span.cursor { box-shadow: inset 0 -3px #6cb4ff; }

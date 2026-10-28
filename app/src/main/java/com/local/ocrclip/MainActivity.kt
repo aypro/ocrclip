@@ -3,6 +3,8 @@ package com.local.ocrclip
 import android.app.Activity
 import android.content.Intent
 import android.content.SharedPreferences
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.provider.Settings
 import android.text.Editable
@@ -39,6 +41,11 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        // Pure black rather than the theme's dark grey, so the Retroids' OLED screens switch those pixels off.
+        window.decorView.setBackgroundColor(Color.BLACK)
+        window.statusBarColor = Color.BLACK
+        window.navigationBarColor = Color.BLACK
+        actionBar?.setBackgroundDrawable(ColorDrawable(Color.BLACK))
         prefs = Prefs(this)
         localDictionary = LocalDictionary(this)
         serviceStatus = findViewById(R.id.serviceStatus)
