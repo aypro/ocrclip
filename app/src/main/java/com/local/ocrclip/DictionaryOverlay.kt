@@ -6,12 +6,10 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.util.TypedValue
 import android.view.ContextThemeWrapper
-import android.view.Gravity
 import android.view.WindowManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
-import android.widget.TextView
 import org.json.JSONObject
 
 /** A window the service shows over the game and closes on B, Back or a hotkey. */
@@ -54,7 +52,7 @@ class DictionaryOverlay(context: Context, private val bridge: Any? = null) : Ove
         val web = webView!!
         web.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
         attach(view)
-        // The page handles the D-pad itself, so it needs focus rather than the close button.
+        // The page handles the D-pad itself, so it needs key focus.
         web.requestFocus()
     }
 
@@ -84,8 +82,6 @@ class DictionaryOverlay(context: Context, private val bridge: Any? = null) : Ove
     @SuppressLint("SetJavaScriptEnabled")
     private fun build(): FrameLayout {
         val margin = dp(16)
-        // Space above the page for the close button, so it doesn't cover the page content.
-        val closeSize = dp(40)
         val web = WebView(context).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
@@ -96,24 +92,13 @@ class DictionaryOverlay(context: Context, private val bridge: Any? = null) : Ove
             bridge?.let { addJavascriptInterface(it, "OCRClip") }
         }
         webView = web
-        val close = TextView(context).apply {
-            text = "✕"
-            textSize = 20f
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            setBackgroundColor(0xCC333333.toInt())
-            setOnClickListener { hide() }
-        }
         return FrameLayout(context).apply {
-            // Dimmed backdrop; tapping it closes the overlay.
+            // Dimmed backdrop; tapping it closes the overlay, as do B, Back and the hotkeys.
             setBackgroundColor(0x99000000.toInt())
             setOnClickListener { hide() }
             addView(web, FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT,
-            ).apply { setMargins(margin, closeSize, margin, margin) })
-            addView(close, FrameLayout.LayoutParams(closeSize, closeSize, Gravity.TOP or Gravity.END).apply {
-                setMargins(0, 0, margin, 0)
-            })
+            ).apply { setMargins(margin, margin, margin, margin) })
         }
     }
 
