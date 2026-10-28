@@ -9,25 +9,37 @@ with "Load dictionary database" in the app.
 
 Parsing the zips takes a while on a PC and much longer on a handheld, which is why this runs here and the app only
 reads the finished file. Standard library only.
+
+Glossaries are stored deflate-compressed against a preset dictionary sampled from the same Yomitan dictionary: most
+entries are a few hundred bytes of structured-content JSON that repeats the same keys and styles, which plain
+per-entry compression barely shrinks but a shared preset shrinks about ninefold.
 """
 
 import json
+import random
 import os
 import re
 import sqlite3
 import sys
 import zipfile
+import zlib
 
-SCHEMA_VERSION = 1  # LocalDictionary.SCHEMA_VERSION
+SCHEMA_VERSION = 2  # LocalDictionary.SCHEMA_VERSION
+
+# Deflate looks back at most 32 KB, so a bigger preset dictionary would be wasted.
+PRESET_SIZE = 32 * 1024
+PRESET_SAMPLES = 4000
 
 SCHEMA = """
 CREATE TABLE dictionaries (
     id INTEGER PRIMARY KEY, title TEXT NOT NULL UNIQUE, revision TEXT, priority INTEGER NOT NULL,
-    terms INTEGER NOT NULL, meta INTEGER NOT NULL, kanji INTEGER NOT NULL
+    terms INTEGER NOT NULL, meta INTEGER NOT NULL, kanji INTEGER NOT NULL, preset BLOB
 );
 CREATE TABLE terms (
     dict_id INTEGER NOT NULL, term TEXT NOT NULL, reading TEXT NOT NULL, def_tags TEXT NOT NULL,
-    rules TEXT NOT NULL, score INTEGER NOT NULL, glossary TEXT NOT NULL, sequence INTEGER, term_tags TEXT NOT NULL
+    rules TEXT NOT NULL, score INTEGER NOT NULL, sequence INTEGER, term_tags TEXT NOT NULL,
+    -- Last, so reading the other columns of a row never walks a long glossary's overflow pages.
+    glossary BLOB NOT NULL
 );
 CREATE TABLE term_meta (dict_id INTEGER NOT NULL, term TEXT NOT NULL, mode TEXT NOT NULL, data TEXT NOT NULL);
 CREATE TABLE kanji (
@@ -62,6 +74,39 @@ def banks(zf, kind):
             yield json.load(f)
 
 
+def glossary_of(e, version):
+    """(glossary, sequence, termTags) of a term bank entry."""
+    if version == 1:
+        # [term, reading, definitionTags, rules, score, ...glossary]
+        return e[5:], None, ""
+    # [term, reading, definitionTags, rules, score, glossary, sequence, termTags]
+    return e[5], e[6], text(e[7])
+
+
+def preset(zf, version):
+    """Preset dictionary for one Yomitan dictionary: glossaries sampled evenly from all of its term banks."""
+    pattern = re.compile(r"(?:.*/)?term_bank_\d+\.json$")
+    per_bank = max(1, PRESET_SAMPLES // max(1, sum(1 for n in zf.namelist() if pattern.match(n))))
+    samples = []
+    for bank in banks(zf, "term_bank"):
+        step = max(1, len(bank) // per_bank)
+        samples += [compact(glossary_of(e, version)[0]).encode() for e in bank[::step]]
+    if not samples:
+        return None
+    random.Random(0).shuffle(samples)
+    return b"".join(samples)[-PRESET_SIZE:]
+
+
+def compressor(zdict):
+    """Returns a function that deflates one glossary against [zdict] (raw deflate, no zlib header)."""
+    base = zlib.compressobj(9, zlib.DEFLATED, -15, zdict=zdict) if zdict else zlib.compressobj(9, zlib.DEFLATED, -15)
+
+    def compress(data):
+        c = base.copy()  # far cheaper than loading the preset into a new compressor for every entry
+        return c.compress(data) + c.flush()
+    return compress
+
+
 def find_index(zf):
     names = [n for n in zf.namelist() if n == "index.json" or n.endswith("/index.json")]
     if not names:
@@ -82,18 +127,15 @@ def add_dictionary(db, path, dict_id):
             return False
         version = index.get("format", index.get("version", 3))
 
+        zdict = preset(zf, version)
+        compress = compressor(zdict)
         terms = 0
         for bank in banks(zf, "term_bank"):
             rows = []
             for e in bank:
-                if version == 1:
-                    # [term, reading, definitionTags, rules, score, ...glossary]
-                    glossary, sequence, term_tags = e[5:], None, ""
-                else:
-                    # [term, reading, definitionTags, rules, score, glossary, sequence, termTags]
-                    glossary, sequence, term_tags = e[5], e[6], text(e[7])
-                rows.append((dict_id, e[0], e[1] or e[0], text(e[2]), text(e[3]), e[4] or 0,
-                             compact(glossary), sequence, term_tags))
+                glossary, sequence, term_tags = glossary_of(e, version)
+                rows.append((dict_id, e[0], e[1] or e[0], text(e[2]), text(e[3]), e[4] or 0, sequence, term_tags,
+                             compress(compact(glossary).encode())))
             db.executemany("INSERT INTO terms VALUES (?,?,?,?,?,?,?,?,?)", rows)
             terms += len(rows)
 
@@ -120,8 +162,8 @@ def add_dictionary(db, path, dict_id):
                            [(dict_id, e[0], text(e[1]), text(e[3])) for e in bank])
 
         skipped = [n for n in zf.namelist() if re.search(r"\.(png|jpe?g|gif|svg|webp|bmp|avif)$", n, re.I)]
-        db.execute("INSERT INTO dictionaries VALUES (?,?,?,?,?,?,?)",
-                   (dict_id, title, str(index.get("revision", "")), dict_id, terms, meta, kanji))
+        db.execute("INSERT INTO dictionaries VALUES (?,?,?,?,?,?,?,?)",
+                   (dict_id, title, str(index.get("revision", "")), dict_id, terms, meta, kanji, zdict))
         parts = [f"{n:,} {what}" for n, what in ((terms, "terms"), (meta, "frequency/pitch"), (kanji, "kanji")) if n]
         note = f" ({len(skipped)} images skipped)" if skipped else ""
         print(f"  {title}: {', '.join(parts) or 'nothing usable'}{note}")

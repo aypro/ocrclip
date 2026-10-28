@@ -46,7 +46,7 @@ To use a capture region, press the hotkey in a game once, then use **Pick region
 
 ## Offline Yomitan dictionaries
 
-Reading Yomitan dictionary zips takes a long time on a handheld, so you turn them into one database on a PC (Python 3, nothing else to install), and the device only copies and reads that file.
+Reading Yomitan dictionary zips takes a long time on a handheld, so you turn them into one database on a PC (Python 3, nothing else to install), and the device only copies and reads that file. Definitions are stored compressed, so even a large collection stays manageable: 15 dictionaries including Jitendex, 大辞泉 and four frequency lists come to about 710 MB, against over 3 GB uncompressed. Databases built before v0.3.1 must be rebuilt; the app says so if you load an old one.
 
 1. Download the Yomitan dictionaries you want, for example JMdict, a frequency list (JPDB, BCCWJ…), a pitch accent dictionary (Kanjium) and KANJIDIC. Any number of term, frequency, pitch accent and kanji dictionaries can be combined.
 2. Build the database. The order you list them in is the default display order:

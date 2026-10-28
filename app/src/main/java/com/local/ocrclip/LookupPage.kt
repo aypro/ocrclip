@@ -161,7 +161,7 @@ $SCRIPT
     private const val CSS = """
 body { margin: 0; background: #111; color: #eee; font: 18px/1.5 sans-serif; }
 #text { position: sticky; top: 0; background: #222; padding: 8px 12px; font-size: 26px; line-height: 1.7;
-    border-bottom: 1px solid #444; }
+    border-bottom: 1px solid #444; max-height: 35vh; overflow-y: auto; }
 #text span.match { background: #2d4f6c; }
 #text span.cursor { box-shadow: inset 0 -3px #6cb4ff; }
 #results { padding: 0 12px 24px; }
@@ -217,6 +217,9 @@ function go(offset) {
         span.className = i === pos ? 'match cursor' : i > pos && i < pos + len ? 'match' : '';
     }
     results.innerHTML = r.html;
+    // A long capture scrolls inside its own box (it would otherwise cover the results); keep the cursor in view.
+    const cursor = chars.find(([i]) => i === pos);
+    if (cursor) cursor[1].scrollIntoView({ block: 'nearest' });
     window.scrollTo(0, 0);
 }
 document.addEventListener('keydown', (e) => {

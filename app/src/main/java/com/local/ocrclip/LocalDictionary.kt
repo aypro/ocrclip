@@ -9,6 +9,7 @@ import org.json.JSONObject
 import org.json.JSONTokener
 import java.io.File
 import java.text.Normalizer
+import java.util.zip.Inflater
 
 /**
  * Offline lookup in Yomitan dictionaries, from the database tools/build_dict.py builds on a PC (parsing the zips on a
@@ -40,7 +41,7 @@ class LocalDictionary(private val context: Context) {
 
     private class Match(
         val id: Long, val dictionary: Info, val rank: Int, val term: String, val reading: String, val tags: List<String>,
-        val score: Int, val glossary: String, val length: Int, val reasons: List<String>,
+        val score: Int, val length: Int, val reasons: List<String>,
     )
 
     private val prefs = Prefs(context)
@@ -49,6 +50,9 @@ class LocalDictionary(private val context: Context) {
     }
     private var db: SQLiteDatabase? = null
     private var tagNotes = emptyMap<String, String>()
+
+    /** Each dictionary's deflate preset, which its compressed glossaries were built against. */
+    private var presets = emptyMap<Int, ByteArray?>()
 
     /** lastModified of the open file, so a database loaded in the settings replaces the open one. */
     private var opened = 0L
@@ -70,6 +74,9 @@ class LocalDictionary(private val context: Context) {
                 while (c.moveToNext()) notes["${c.getInt(0)}:${c.getString(1)}"] = c.getString(2)
             }
             tagNotes = notes
+            presets = d.rawQuery("SELECT id, preset FROM dictionaries", null).use { c ->
+                buildMap { while (c.moveToNext()) put(c.getInt(0), if (c.isNull(1)) null else c.getBlob(1)) }
+            }
         }
         return db
     }
@@ -133,8 +140,9 @@ class LocalDictionary(private val context: Context) {
                 .filter { it.text.isNotEmpty() }
                 .distinctBy { it.text to it.conditions } // breadth-first, so this keeps the shortest chain
                 .groupBy { it.text }
+            // Glossaries are left out here: short kana match hundreds of entries, and only the shown ones are read.
             query(
-                db, "SELECT rowid, dict_id, term, reading, def_tags, rules, score, glossary, term_tags FROM terms " +
+                db, "SELECT rowid, dict_id, term, reading, def_tags, rules, score, term_tags FROM terms " +
                     "WHERE term IN (%s) OR reading IN (%s)", candidates.keys.toList(),
             ) { c ->
                 val dictionary = byId[c.getInt(1)] ?: return@query
@@ -144,10 +152,10 @@ class LocalDictionary(private val context: Context) {
                 val candidate = (candidates[term].orEmpty() + candidates[reading].orEmpty())
                     .firstOrNull { Deinflector.matches(it.conditions, pos) } ?: return@query
                 if (!seen.add(c.getLong(0))) return@query
-                val tags = (c.getString(4).split(' ') + c.getString(8).split(' ')).filter { it.isNotEmpty() }.distinct()
+                val tags = (c.getString(4).split(' ') + c.getString(7).split(' ')).filter { it.isNotEmpty() }.distinct()
                 matches += Match(
                     c.getLong(0), dictionary, rank.getValue(dictionary.id), term, reading, tags, c.getInt(6),
-                    c.getString(7), end - offset, candidate.reasons,
+                    end - offset, candidate.reasons,
                 )
             }
         }
@@ -162,6 +170,7 @@ class LocalDictionary(private val context: Context) {
             ))
             .take(MAX_ENTRIES)
         val metaByTerm = meta(db, groups.map { it.first().term }.distinct(), byId, rank)
+        val glossaries = glossaries(db, groups.flatten().map { it.id })
         val entries = groups.map { group ->
             val best = group.minWith(compareBy({ -it.length }, { it.reasons.size }))
             val forms = metaByTerm[best.term].orEmpty().filter { it.reading == null || it.reading == best.reading }
@@ -169,13 +178,27 @@ class LocalDictionary(private val context: Context) {
                 best.term, best.reading, best.reasons,
                 group.map { m ->
                     Definition(m.dictionary.title, m.tags.map { it to (tagNotes["${m.dictionary.id}:$it"] ?: "") },
-                        JSONArray(m.glossary))
+                        JSONArray(glossaries.getValue(m.id)))
                 },
                 forms.mapNotNull { it.frequency?.let { f -> Frequency(it.dictionary, f) } },
                 forms.mapNotNull { it.pitches?.let { p -> Pitch(it.dictionary, p) } },
             )
         }
         return Result(matches.maxOfOrNull { it.length } ?: 0, entries, kanji(db, text, offset, byId, rank))
+    }
+
+    /** Decompressed glossary JSON by rowid. */
+    private fun glossaries(db: SQLiteDatabase, ids: List<Long>): Map<Long, String> {
+        val found = HashMap<Long, String>()
+        val inflater = Inflater(true)
+        try {
+            query(db, "SELECT rowid, dict_id, glossary FROM terms WHERE rowid IN (%s)", ids.map { it.toString() }) { c ->
+                found[c.getLong(0)] = inflate(inflater, c.getBlob(2), presets[c.getInt(1)])
+            }
+        } finally {
+            inflater.end()
+        }
+        return found
     }
 
     private class Meta(
@@ -230,7 +253,7 @@ class LocalDictionary(private val context: Context) {
     }
 
     companion object {
-        const val SCHEMA_VERSION = 1 // tools/build_dict.py SCHEMA_VERSION
+        const val SCHEMA_VERSION = 2 // tools/build_dict.py SCHEMA_VERSION
         private const val MAX_LENGTH = 16
         private const val MAX_ENTRIES = 32
 
@@ -246,6 +269,21 @@ class LocalDictionary(private val context: Context) {
                 throw IllegalStateException("it was built by a different version of tools/build_dict.py, rebuild it")
             }
             return db
+        }
+
+        /** Raw deflate, as written by build_dict.py's compressor. */
+        private fun inflate(inflater: Inflater, data: ByteArray, preset: ByteArray?): String {
+            inflater.reset()
+            preset?.let { inflater.setDictionary(it) }
+            inflater.setInput(data)
+            val out = java.io.ByteArrayOutputStream(data.size * 8)
+            val buffer = ByteArray(16 * 1024)
+            while (!inflater.finished()) {
+                val n = inflater.inflate(buffer)
+                if (n == 0 && (inflater.needsInput() || inflater.needsDictionary())) error("corrupt glossary")
+                out.write(buffer, 0, n)
+            }
+            return out.toString(Charsets.UTF_8.name())
         }
 
         /** Like Yomitan's text preprocessors: width and compatibility forms folded, and both kana scripts tried. */
