@@ -10,14 +10,20 @@ import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.InsetDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.text.Editable
 import android.text.InputType
+import android.text.SpannableString
+import android.text.Spanned
 import android.text.TextWatcher
+import android.text.style.DynamicDrawableSpan
+import android.text.style.ImageSpan
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.KeyEvent
@@ -421,7 +427,7 @@ class MainActivity : Activity() {
         card.addView(top)
 
         val buttons = LinearLayout(this)
-        buttons.addView(button("Pick region", Style.TONAL) {
+        buttons.addView(button("Pick region", Style.TONAL, R.drawable.ic_crop) {
             if (Prefs.lastScreenshot(this).exists()) {
                 startActivity(Intent(this, RegionActivity::class.java))
             } else {
@@ -651,12 +657,22 @@ class MainActivity : Activity() {
                 else -> "Pro API key"
             }
         }
-        val (targetField, _) = field(
-            "Translate into", prefs.deeplTarget,
-            InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS,
-        ) { prefs.deeplTarget = it.uppercase().ifEmpty { Prefs.DEFAULT_DEEPL_TARGET } }
-        deepl.addView(targetField, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dpi(10) })
-        deepl.addView(helper("DeepL language code, e.g. EN-US, EN-GB, DE"))
+        val target = TextView(this).apply {
+            id = View.generateViewId()
+            setSingleLine(true)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            setTextColor(p.on)
+            gravity = Gravity.CENTER_VERTICAL or Gravity.START
+            setPadding(dpi(16), 0, dpi(12), 0)
+            isFocusable = true
+            isClickable = true
+            background = tappable(p, radiiAll(6), Color.TRANSPARENT, p.outline, dpi(1))
+            val chevron = getDrawable(R.drawable.ic_expand)!!.mutate().apply { setTint(p.onVar) }
+            setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, chevron, null)
+            setOnClickListener { pickTarget() }
+        }
+        deepl.addView(outlined("Translate into", target).first, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dpi(10) })
+        refreshers += { target.text = targetName(prefs.deeplTarget) }
 
         val popup = LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
@@ -787,7 +803,7 @@ class MainActivity : Activity() {
         card.addView(top)
         val open = { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
         card.addView(
-            if (on) button("Accessibility settings", Style.OUTLINED, open) else button("Turn on in settings", Style.FILLED_ERROR, open),
+            if (on) button("Accessibility settings", Style.OUTLINED, onClick = open) else button("Turn on in settings", Style.FILLED_ERROR, onClick = open),
             LinearLayout.LayoutParams(MATCH, dpi(44)).apply { topMargin = dpi(12) },
         )
         return card
@@ -875,7 +891,11 @@ class MainActivity : Activity() {
         }
         content.addView(label(14f, p.onVar, value = body).apply { gravity = Gravity.CENTER },
             LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dpi(16) })
-        val waiting = label(13f, p.onVar, value = "WAITING…").apply {
+        val dot = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(p.primary)
+        }
+        val waiting = label(13f, p.onVar, value = leading(dot, 8, 10, "WAITING…")).apply {
             gravity = Gravity.CENTER
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
             letterSpacing = 0.04f
@@ -927,6 +947,61 @@ class MainActivity : Activity() {
         OcrService.bindingHotkey = false
     }
 
+    private fun targetName(code: String) = DeepL.TARGETS.firstOrNull { it.first == code }?.let { "${it.second} · $code" } ?: code
+
+    /** The DeepL target language as a list dialog; the D-pad starts on the current choice. */
+    private fun pickTarget() {
+        val current = prefs.deeplTarget
+        val codes = DeepL.TARGETS.map { it.first }.let { if (current in it) it else listOf(current) + it }
+        val dialog = Dialog(this)
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dpi(12), dpi(24), dpi(12), dpi(16))
+            background = shape(radiiAll(28), p.cardHigh)
+        }
+        content.addView(label(24f, p.on, value = "Translate into").apply { setPadding(dpi(12), 0, dpi(12), 0) })
+        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        var selected: View? = null
+        for (code in codes) {
+            val on = code == current
+            val r = LinearLayout(this).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                minimumHeight = dpi(48)
+                setPadding(dpi(12), 0, dpi(12), 0)
+                isFocusable = true
+                isClickable = true
+                background = tappable(p, radiiAll(24), Color.TRANSPARENT)
+                setOnClickListener {
+                    prefs.deeplTarget = code
+                    dialog.dismiss()
+                }
+            }
+            r.announceAs("android.widget.RadioButton") { on }
+            r.addView(Indicator(this, p, Indicator.Kind.RADIO).apply { checked = on },
+                LinearLayout.LayoutParams(WRAP, WRAP).apply { marginEnd = dpi(16) })
+            r.addView(label(16f, p.on, value = targetName(code)), LinearLayout.LayoutParams(0, WRAP, 1f))
+            list.addView(r, LinearLayout.LayoutParams(MATCH, WRAP))
+            if (on) selected = r
+        }
+        val scroll = ScrollView(this).apply { addView(list) }
+        content.addView(scroll, LinearLayout.LayoutParams(MATCH, 0, 1f).apply { topMargin = dpi(16) })
+        val actions = LinearLayout(this).apply { gravity = Gravity.END }
+        actions.addView(button("Cancel", Style.TEXT) { dialog.dismiss() }, LinearLayout.LayoutParams(WRAP, dpi(44)))
+        content.addView(actions, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dpi(8) })
+
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        dialog.setContentView(content)
+        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        dialog.show()
+        dialog.window?.setLayout(dpi(328), (resources.displayMetrics.heightPixels - dpi(48)).coerceAtMost(dpi(420)))
+        selected?.let { s ->
+            s.post {
+                scroll.scrollTo(0, (s.top - dpi(96)).coerceAtLeast(0))
+                s.requestFocusFromTouch() // also when opened by touch, so the D-pad starts here
+            }
+        }
+    }
+
     // ---- Database import (unchanged) ----
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -975,7 +1050,15 @@ class MainActivity : Activity() {
             setOnClickListener(onClick)
         }
 
-    private fun button(text: String, style: Style, onClick: () -> Unit) = Button(this).apply {
+    /** [text] after a [size] dp drawable and a [gap] dp space, kept as one centred run (compound drawables sit at the edge). */
+    private fun leading(d: Drawable, size: Int, gap: Int, text: String): CharSequence {
+        val inset = InsetDrawable(d, 0, 0, dpi(gap), 0).apply { setBounds(0, 0, dpi(size + gap), dpi(size)) }
+        return SpannableString(" $text").apply {
+            setSpan(ImageSpan(inset, DynamicDrawableSpan.ALIGN_CENTER), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+    }
+
+    private fun button(text: String, style: Style, iconRes: Int? = null, onClick: () -> Unit) = Button(this).apply {
         this.text = text
         isAllCaps = false
         stateListAnimator = null
@@ -1005,6 +1088,12 @@ class MainActivity : Activity() {
                 background = tappable(p, r, Color.TRANSPARENT)
                 setTextColor(p.primary)
             }
+        }
+        if (iconRes != null) {
+            this.text = leading(getDrawable(iconRes)!!.mutate().apply { setTint(currentTextColor) }, 18, 8, text)
+            // The icon takes the room of the side padding, so a half-width button still fits on one line.
+            setPadding(dpi(8), 0, dpi(8), 0)
+            isSingleLine = true
         }
         setOnClickListener { onClick() }
     }
@@ -1046,14 +1135,22 @@ class MainActivity : Activity() {
 
     private fun helper(text: String) = label(12f, p.onVar, value = text).apply { setPadding(dpi(16), dpi(6), dpi(16), 0) }
 
-    /** Material outlined text field: a 56 dp box whose label sits on the top border. */
-    private fun field(name: String, initial: String, variation: Int, mono: Boolean = false, onChange: (String) -> Unit): Pair<FrameLayout, EditText> {
+    /** Material outlined box: [box] at 56 dp with [name] sitting on its top border. Returns the frame and the label. */
+    private fun outlined(name: String, box: View): Pair<FrameLayout, TextView> {
         val frame = FrameLayout(this)
         val caption = label(12f, p.onVar, value = name).apply {
             setBackgroundColor(p.bg)
             setPadding(dpi(4), 0, dpi(4), 0)
             gravity = Gravity.CENTER_VERTICAL
+            labelFor = box.id
         }
+        frame.addView(box, FrameLayout.LayoutParams(MATCH, dpi(56)).apply { topMargin = dpi(8) })
+        frame.addView(caption, FrameLayout.LayoutParams(WRAP, dpi(16), Gravity.TOP or Gravity.START).apply { marginStart = dpi(12) })
+        return frame to caption
+    }
+
+    /** Material outlined text field. */
+    private fun field(name: String, initial: String, variation: Int, mono: Boolean = false, onChange: (String) -> Unit): Pair<FrameLayout, EditText> {
         val edit = EditText(this).apply {
             id = View.generateViewId()
             setSingleLine(true)
@@ -1072,16 +1169,14 @@ class MainActivity : Activity() {
                 addState(intArrayOf(android.R.attr.state_focused), focused)
                 addState(intArrayOf(), idle)
             }
-            setOnFocusChangeListener { _, has -> caption.setTextColor(if (has) p.primary else p.onVar) }
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
                 override fun afterTextChanged(s: Editable) = onChange(s.toString().trim())
             })
         }
-        caption.labelFor = edit.id
-        frame.addView(edit, FrameLayout.LayoutParams(MATCH, dpi(56)).apply { topMargin = dpi(8) })
-        frame.addView(caption, FrameLayout.LayoutParams(WRAP, dpi(16), Gravity.TOP or Gravity.START).apply { marginStart = dpi(12) })
+        val (frame, caption) = outlined(name, edit)
+        edit.setOnFocusChangeListener { _, has -> caption.setTextColor(if (has) p.primary else p.onVar) }
         return frame to edit
     }
 

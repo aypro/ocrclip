@@ -8,6 +8,19 @@ import org.json.JSONObject
 
 /** DeepL API v2 text translation. Free-plan keys end in ":fx" and use their own host. */
 object DeepL {
+    /** Target languages the API accepts, as (code, name). */
+    val TARGETS = listOf(
+        "AR" to "Arabic", "BG" to "Bulgarian", "CS" to "Czech", "DA" to "Danish", "DE" to "German",
+        "EL" to "Greek", "EN-GB" to "English (UK)", "EN-US" to "English (US)", "ES" to "Spanish",
+        "ES-419" to "Spanish (Latin America)", "ET" to "Estonian", "FI" to "Finnish", "FR" to "French",
+        "HE" to "Hebrew", "HU" to "Hungarian", "ID" to "Indonesian", "IT" to "Italian", "KO" to "Korean",
+        "LT" to "Lithuanian", "LV" to "Latvian", "NB" to "Norwegian (Bokmål)", "NL" to "Dutch", "PL" to "Polish",
+        "PT-BR" to "Portuguese (Brazil)", "PT-PT" to "Portuguese (Portugal)", "RO" to "Romanian",
+        "RU" to "Russian", "SK" to "Slovak", "SL" to "Slovenian", "SV" to "Swedish", "TH" to "Thai",
+        "TR" to "Turkish", "UK" to "Ukrainian", "VI" to "Vietnamese", "ZH-HANS" to "Chinese (simplified)",
+        "ZH-HANT" to "Chinese (traditional)",
+    )
+
     /** Returns the translation of Japanese [text] into [target] (e.g. "EN-US"). Blocking; call off the main thread. */
     fun translate(text: String, key: String, target: String): String {
         val host = if (key.endsWith(":fx")) "api-free.deepl.com" else "api.deepl.com"
