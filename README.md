@@ -40,9 +40,9 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell pm grant com.local.ocrclip android.permission.WRITE_SECURE_SETTINGS
 ```
 
-Open the app and turn on **OCR Clip hotkey** in accessibility settings, or let the app turn it on if you made the grant above. Then press **Set hotkey** and choose the OCR engine and the after-capture action. For translations, also press **Set translate hotkey**, pick a different button, and paste your DeepL API key if you have one. Typing a key on a handheld is fiddly; `adb shell input text '<key>'` with the key field focused works.
+Open the app and turn on **OCR Clip hotkey** in accessibility settings, or let the app turn it on if you made the grant above. The settings are split into four sections on the left: **Capture** (hotkey, OCR engine, capture region), **Lookup** (what happens after a capture), **Translate** and **Service**. In **Capture**, tap **Lookup hotkey**, press the button you want, and choose the OCR engine; then pick the after-capture action in **Lookup**. For translations, tap **Translate hotkey** in **Translate**, press a different button, and paste your DeepL API key if you have one. The power button at the bottom of the left rail pauses both hotkeys. Typing a key on a handheld is fiddly; `adb shell input text '<key>'` with the key field focused works.
 
-To use a capture region, press the hotkey in a game once, then use **Pick region** in the app to drag over that screenshot.
+To use a capture region, press the hotkey in a game once, then use **Pick region** under **Capture** in the app to drag over that screenshot.
 
 ## Offline Yomitan dictionaries
 
@@ -56,7 +56,7 @@ Reading Yomitan dictionary zips takes a long time on a handheld, so you turn the
    ```
 
 3. Copy `dict.db` to the device (USB, or `adb push dict.db /sdcard/Download/`).
-4. In the app, press **Load dictionary database** and pick the file, then choose **Look up in your Yomitan dictionaries** under "After capture".
+4. In the app, open **Lookup**, choose **Yomitan, offline**, then press **Load…** and pick the file.
 
 The app lists the dictionaries in the database. Untick one to stop using it, or reorder them with ▲▼. These settings are kept by dictionary name, so rebuilding the database on the PC (to add a dictionary, say) keeps them. Images inside dictionaries aren't included; their description is shown instead.
 
