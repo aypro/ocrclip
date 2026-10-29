@@ -4,7 +4,7 @@ Notes for coding agents working on OCR Clip. See README.md for what the app does
 
 ## Layout
 
-Single module, `app/`, package `com.local.ocrclip`. Plain Activities and Views, no Compose, no AndroidX, no XML other than one layout. Keep it that way unless there is a real need.
+Single module, `app/`, package `com.local.ocrclip`. Plain Activities and Views, no Compose, no AndroidX, no XML layouts (the settings screen is built in code). The only resource XML besides the accessibility config is the stroke icons in `res/drawable/ic_*.xml`. Keep it that way unless there is a real need.
 
 | File | Role |
 |---|---|
@@ -17,7 +17,8 @@ Single module, `app/`, package `com.local.ocrclip`. Plain Activities and Views, 
 | `TranslationPopup.kt` | Compact, non-focusable overlay for DeepL API results, placed at the edge away from the capture region. |
 | `DeepL.kt` | DeepL API v2 `/translate` client (keys ending `:fx` use `api-free.deepl.com`). The translate hotkey uses it when `deepl_key` is set and falls back to the translator page on failure. |
 | `Prefs.kt` | Everything in SharedPreferences file `settings`. Keys: `hotkey`, `translate_hotkey`, `enabled`, `engine` (`local`/`lens`), `keep_newlines`, `copy_to_clipboard`, `show_toast`, `dictionary_mode` (`off`/`overlay`/`local`/`browser`), `dictionary_url`, `dictionary_order` and `disabled_dictionaries` (local dictionaries by title), `translate_url`, `deepl_key`, `deepl_target`, `last_result`, `region_l/t/r/b`. |
-| `MainActivity.kt` + `res/layout/activity_main.xml` | Settings screen. It also binds the hotkeys, through `OcrService.bindingHotkey`, loads the dictionary database (file picker, copied to a temp file and validated before it replaces `dict.db`) and builds the dictionary list rows in code. |
+| `MainActivity.kt` | Settings screen, built in code for a 640×456 dp landscape window (Retroid Pocket Nova at 320 dpi): a navigation rail (Capture, Lookup, Translate, Service, plus the hotkeys on/off toggle) and two-column pages of card groups. Each widget adds a refresher that redraws it from `Prefs`; clicks only write prefs and the prefs listener refreshes. It also binds the hotkeys in a dialog, through `OcrService.bindingHotkey`, and loads the dictionary database (file picker, copied to a temp file and validated before it replaces `dict.db`). |
+| `Ui.kt` | Building blocks for the settings screen: `Palette` (Material 3 dark roles on pure black, from the wallpaper palette on Android 12+), card and button backgrounds with a ripple and a D-pad focus ring, the drawn switch/radio/checkbox (`Indicator`) and the capture region thumbnail (`RegionPreview`). |
 | `RegionActivity.kt` | Drag a capture region over the last screenshot, stored as fractions of the screen. |
 | `ServiceEnabler.kt` | Re-adds the service to `enabled_accessibility_services` using `WRITE_SECURE_SETTINGS`. `BootReceiver` runs on boot or update and re-checks at 30 s, 2 min and 5 min, because Retroid firmware resets the list on boot. |
 
