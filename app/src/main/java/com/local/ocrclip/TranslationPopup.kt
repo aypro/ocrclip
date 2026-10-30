@@ -13,6 +13,7 @@ import android.view.WindowManager
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import java.util.Locale
 
 /**
  * Compact accessibility overlay with a DeepL translation above its source text, at the top or bottom edge
@@ -57,6 +58,7 @@ class TranslationPopup(context: Context) : Overlay {
         val maxHeight = context.resources.displayMetrics.heightPixels * 85 / 100
         source = TextView(context).apply {
             textSize = 14f
+            textLocale = Locale.JAPANESE // Japanese glyphs, not the Chinese ones the system locale would pick
             setPadding(0, dp(6), 0, 0)
             setTextColor(0xFFAAAAAA.toInt())
         }

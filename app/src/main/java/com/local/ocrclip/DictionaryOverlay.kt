@@ -7,8 +7,11 @@ import android.graphics.PixelFormat
 import android.util.TypedValue
 import android.view.ContextThemeWrapper
 import android.view.WindowManager
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import java.io.File
 import android.widget.FrameLayout
 import org.json.JSONObject
 
@@ -22,9 +25,14 @@ interface Overlay {
  * Web page (dictionary, translator or the offline lookup page) shown in an accessibility overlay window on top of the
  * game, so the game stays in front. The overlay takes key focus while open, so gamepad input goes to the page, not the
  * game. The service keeps one instance per page so each keeps its own loaded site. [bridge] is exposed to the page as
- * `OCRClip`; only the offline lookup overlay has one, since it never loads a website.
+ * `OCRClip`; only the offline lookup overlay has one, since it never loads a website. [files] serves a page built with
+ * [showPage] local files by path (the lookup font), at its origin https://ocrclip.invalid/.
  */
-class DictionaryOverlay(context: Context, private val bridge: Any? = null) : Overlay {
+class DictionaryOverlay(
+    context: Context,
+    private val bridge: Any? = null,
+    private val files: ((String) -> File?)? = null,
+) : Overlay {
     private val context = ContextThemeWrapper(context, android.R.style.Theme_DeviceDefault)
     private val windowManager = context.getSystemService(WindowManager::class.java)
     private var root: FrameLayout? = null
@@ -50,7 +58,7 @@ class DictionaryOverlay(context: Context, private val bridge: Any? = null) : Ove
     fun showPage(html: String) {
         val view = root ?: build().also { root = it }
         val web = webView!!
-        web.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
+        web.loadDataWithBaseURL("https://$LOCAL_HOST/", html, "text/html", "utf-8", null)
         attach(view)
         // The page handles the D-pad itself, so it needs key focus.
         web.requestFocus()
@@ -91,7 +99,15 @@ class DictionaryOverlay(context: Context, private val bridge: Any? = null) : Ove
             settings.domStorageEnabled = true
             // Lets the self-hosted jisho switch to a compact layout (no site header, search box at the bottom).
             settings.userAgentString = "${settings.userAgentString} OCRClip/1"
-            webViewClient = WebViewClient() // keep link clicks inside the overlay
+            webViewClient = object : WebViewClient() { // also keeps link clicks inside the overlay
+                override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+                    if (request.url.host != LOCAL_HOST) return null
+                    val file = files?.invoke(request.url.path.orEmpty())?.takeIf { it.exists() }
+                        ?: return WebResourceResponse("text/plain", null, 404, "Not Found", null, null)
+                    // Fonts are sniffed, so the type doesn't matter.
+                    return WebResourceResponse("application/octet-stream", null, file.inputStream())
+                }
+            }
             setBackgroundColor(Color.BLACK)
             bridge?.let { addJavascriptInterface(it, "OCRClip") }
         }
@@ -109,4 +125,8 @@ class DictionaryOverlay(context: Context, private val bridge: Any? = null) : Ove
     private fun dp(value: Int) = TypedValue.applyDimension(
         TypedValue.COMPLEX_UNIT_DIP, value.toFloat(), context.resources.displayMetrics,
     ).toInt()
+
+    companion object {
+        private const val LOCAL_HOST = "ocrclip.invalid"
+    }
 }

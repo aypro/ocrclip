@@ -78,6 +78,11 @@ class Prefs(context: Context) {
         get() = sp.getString("deepl_target", DEFAULT_DEEPL_TARGET) ?: DEFAULT_DEEPL_TARGET
         set(v) = sp.edit().putString("deepl_target", v).apply()
 
+    /** Name of the font loaded for Japanese text in the lookup page ([lookupFont]); empty means the system font. */
+    var lookupFontName: String
+        get() = sp.getString("lookup_font", "") ?: ""
+        set(v) = sp.edit().putString("lookup_font", v).apply()
+
     var lastResult: String
         get() = sp.getString("last_result", "") ?: ""
         set(v) = sp.edit().putString("last_result", v).apply()
@@ -111,6 +116,8 @@ class Prefs(context: Context) {
         const val DEFAULT_DEEPL_TARGET = "EN-US"
 
         fun lastScreenshot(context: Context) = File(context.cacheDir, "last_screenshot.jpg")
+
+        fun lookupFont(context: Context) = File(context.filesDir, "lookup_font")
 
         /** `{text}` in [template] is replaced with the URL-encoded text; without it the text is appended. */
         fun fillTemplate(template: String, text: String): String {

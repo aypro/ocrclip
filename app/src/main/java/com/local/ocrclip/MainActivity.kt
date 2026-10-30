@@ -16,6 +16,7 @@ import android.graphics.drawable.InsetDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.provider.Settings
 import android.text.Editable
 import android.text.InputType
@@ -513,6 +514,31 @@ class MainActivity : Activity() {
             note.visibility = if (text.isEmpty()) View.GONE else View.VISIBLE
         }
 
+        val font = left.section("Japanese font")
+        val fontRow = row(Pos.SINGLE, minHeight = 64).apply { setPadding(dpi(16), dpi(8), dpi(10), dpi(8)) }
+        val (fontTexts, fontName, fontSub) = twoLine("", "")
+        fontName.maxLines = 2
+        fontName.ellipsize = android.text.TextUtils.TruncateAt.END
+        fontRow.addView(fontTexts, LinearLayout.LayoutParams(0, WRAP, 1f))
+        val clearFont = iconButton(R.drawable.ic_close, "Use the system font") {
+            Prefs.lookupFont(this).delete()
+            prefs.lookupFontName = ""
+        }
+        fontRow.addView(clearFont)
+        fontRow.addView(button("Load…", Style.TONAL) {
+            startActivityForResult(
+                Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), PICK_FONT,
+            )
+        }, LinearLayout.LayoutParams(WRAP, dpi(40)))
+        font.card(fontRow)
+        refreshers += {
+            val name = prefs.lookupFontName
+            fontName.text = name.ifEmpty { "System font" }
+            fontSub.text = if (name.isEmpty()) "Noto Sans CJK JP" else "Kana and kanji in the lookup"
+            clearFont.visibility = if (name.isEmpty()) View.GONE else View.VISIBLE
+            font.visibility = if (prefs.dictionaryMode == Prefs.DICT_LOCAL) View.VISIBLE else View.GONE
+        }
+
         // Right column: what the chosen mode needs. Built once and shown or hidden, so typing keeps focus.
         val local = right.section("Yomitan dictionaries")
         dictGroup = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -1002,11 +1028,18 @@ class MainActivity : Activity() {
         }
     }
 
-    // ---- Database import (unchanged) ----
+    // ---- Database and font import ----
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         val uri = data?.data
-        if (requestCode != PICK_DATABASE || resultCode != RESULT_OK || uri == null) return
+        if (resultCode != RESULT_OK || uri == null) return
+        when (requestCode) {
+            PICK_DATABASE -> importDatabase(uri)
+            PICK_FONT -> importFont(uri)
+        }
+    }
+
+    private fun importDatabase(uri: Uri) {
         Toast.makeText(this, "Copying the dictionary database…", Toast.LENGTH_LONG).show()
         // A database with several dictionaries can be hundreds of MB, so copy it off the main thread.
         Thread {
@@ -1025,6 +1058,45 @@ class MainActivity : Activity() {
             }
         }.start()
     }
+
+    /** Copies a TTF, OTF or TTC in for the lookup page, once Android has parsed it as a font. */
+    private fun importFont(uri: Uri) {
+        val fileName = contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+            if (c.moveToFirst()) c.getString(0) else null
+        }?.substringBeforeLast('.') ?: "Custom font"
+        Thread {
+            var name = fileName
+            val target = Prefs.lookupFont(this)
+            val tmp = File(target.path + ".tmp")
+            val failure = runCatching {
+                contentResolver.openInputStream(uri)!!.use { input -> tmp.outputStream().use { input.copyTo(it) } }
+                android.graphics.fonts.Font.Builder(tmp).build() // throws if it isn't a font
+                fontName(tmp)?.let { name = it }
+                if (!tmp.renameTo(target)) error("couldn't replace the old font")
+            }.exceptionOrNull()
+            tmp.delete()
+            runOnUiThread {
+                if (failure == null) prefs.lookupFontName = name
+                Toast.makeText(this, failure?.let { "Couldn't load it: ${it.message ?: "not a font file"}" } ?: "Font loaded",
+                    Toast.LENGTH_LONG).show()
+            }
+        }.start()
+    }
+
+    /** The full name in a font's name table (the first font of a collection), Japanese if it has one. */
+    private fun fontName(file: File): String? = runCatching {
+        val b = java.nio.ByteBuffer.wrap(file.readBytes())
+        fun u16(at: Int) = b.getShort(at).toInt() and 0xFFFF
+        val font = if (b.getInt(0) == 0x74746366) b.getInt(12) else 0 // 'ttcf'
+        val table = (0 until u16(font + 4)).map { font + 12 + 16 * it }
+            .first { b.getInt(it) == 0x6E616D65 } // 'name'
+            .let { b.getInt(it + 8) }
+        val strings = table + u16(table + 4)
+        val names = (0 until u16(table + 2)).map { table + 6 + 12 * it }
+            .filter { u16(it) == 3 && u16(it + 6) == 4 } // Windows platform, full name
+        val pick = names.firstOrNull { u16(it + 4) == 0x411 } ?: names.first { u16(it + 4) == 0x409 }
+        String(b.array(), strings + u16(pick + 10), u16(pick + 8), Charsets.UTF_16BE).trim().ifEmpty { null }
+    }.getOrNull()
 
     // ---- Small builders ----
 
@@ -1182,6 +1254,7 @@ class MainActivity : Activity() {
 
     companion object {
         private const val PICK_DATABASE = 1
+        private const val PICK_FONT = 2
         private const val KEY_SECTION = "section"
         private const val REPO_URL = "https://github.com/aypro/ocrclip"
         private const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
