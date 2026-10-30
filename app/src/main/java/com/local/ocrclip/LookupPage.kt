@@ -15,7 +15,7 @@ object LookupPage {
      * the file so the WebView doesn't reuse an old one. lang="ja" picks Japanese glyphs (直, 骨…) from CJK fonts that
      * would otherwise follow the system locale and draw the Chinese forms.
      */
-    fun page(text: String, fontVersion: Long? = null) = """<!doctype html>
+    fun page(text: String, fontVersion: String? = null) = """<!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <style>$CSS${fontVersion?.let { fontCss(it) } ?: ""}</style></head>
 <body><div id="text"></div><div id="results"></div>
@@ -25,7 +25,7 @@ $SCRIPT
 </script></body></html>"""
 
     // Only kana, kanji and full-width forms, so English glosses keep the system's Latin font.
-    private fun fontCss(version: Long) = """
+    private fun fontCss(version: String) = """
 @font-face { font-family: OCRClipJa; src: url('/font?v=$version');
     unicode-range: U+3000-30FF, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF, U+FF00-FFEF, U+20000-2FFFF; }
 body { font-family: OCRClipJa, sans-serif; }

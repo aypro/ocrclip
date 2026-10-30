@@ -8,6 +8,16 @@ import java.io.File
 
 class Prefs(context: Context) {
     val sp = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    private val filesDir = context.filesDir
+
+    init {
+        // Before fonts were kept side by side, the one loaded font was filesDir/lookup_font.
+        val old = File(filesDir, "lookup_font")
+        if (old.exists()) {
+            fontDir(filesDir).mkdirs()
+            old.renameTo(fontFile(filesDir, lookupFontName.ifEmpty { "Custom font" }))
+        }
+    }
 
     var hotkey: Int
         get() = sp.getInt("hotkey", KeyEvent.KEYCODE_UNKNOWN)
@@ -78,10 +88,14 @@ class Prefs(context: Context) {
         get() = sp.getString("deepl_target", DEFAULT_DEEPL_TARGET) ?: DEFAULT_DEEPL_TARGET
         set(v) = sp.edit().putString("deepl_target", v).apply()
 
-    /** Name of the font loaded for Japanese text in the lookup page ([lookupFont]); empty means the system font. */
+    /** Name of the font picked for Japanese text in the lookup page (see [fontDir]); empty means the system font. */
     var lookupFontName: String
         get() = sp.getString("lookup_font", "") ?: ""
         set(v) = sp.edit().putString("lookup_font", v).apply()
+
+    /** The picked font's file, or null for the system font or if it was removed. */
+    val lookupFont: File?
+        get() = lookupFontName.takeIf { it.isNotEmpty() }?.let { fontFile(filesDir, it) }?.takeIf { it.exists() }
 
     var lastResult: String
         get() = sp.getString("last_result", "") ?: ""
@@ -117,7 +131,10 @@ class Prefs(context: Context) {
 
         fun lastScreenshot(context: Context) = File(context.cacheDir, "last_screenshot.jpg")
 
-        fun lookupFont(context: Context) = File(context.filesDir, "lookup_font")
+        /** Loaded fonts, one file each, named after the font. */
+        fun fontDir(filesDir: File) = File(filesDir, "fonts")
+
+        fun fontFile(filesDir: File, name: String) = File(fontDir(filesDir), name.replace('/', '_'))
 
         /** `{text}` in [template] is replaced with the URL-encoded text; without it the text is appended. */
         fun fillTemplate(template: String, text: String): String {

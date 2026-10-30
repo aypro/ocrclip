@@ -16,6 +16,7 @@ import android.graphics.drawable.InsetDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.provider.Settings
 import android.text.Editable
@@ -82,6 +83,7 @@ class MainActivity : Activity() {
     private val previews = mutableListOf<RegionPreview>()
     private lateinit var dictGroup: LinearLayout
     private lateinit var dictHelp: TextView
+    private lateinit var fontGroup: LinearLayout
 
     /** Which hotkey the next key press binds, or null when not binding. */
     private var binding: Binding? = null
@@ -115,6 +117,7 @@ class MainActivity : Activity() {
         loadScreenshot()
         refresh()
         showDictionaries()
+        showFonts()
     }
 
     override fun onPause() {
@@ -515,29 +518,11 @@ class MainActivity : Activity() {
         }
 
         val font = left.section("Japanese font")
-        val fontRow = row(Pos.SINGLE, minHeight = 64).apply { setPadding(dpi(16), dpi(8), dpi(10), dpi(8)) }
-        val (fontTexts, fontName, fontSub) = twoLine("", "")
-        fontName.maxLines = 2
-        fontName.ellipsize = android.text.TextUtils.TruncateAt.END
-        fontRow.addView(fontTexts, LinearLayout.LayoutParams(0, WRAP, 1f))
-        val clearFont = iconButton(R.drawable.ic_close, "Use the system font") {
-            Prefs.lookupFont(this).delete()
-            prefs.lookupFontName = ""
-        }
-        fontRow.addView(clearFont)
-        fontRow.addView(button("Load…", Style.TONAL) {
-            startActivityForResult(
-                Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), PICK_FONT,
-            )
-        }, LinearLayout.LayoutParams(WRAP, dpi(40)))
-        font.card(fontRow)
-        refreshers += {
-            val name = prefs.lookupFontName
-            fontName.text = name.ifEmpty { "System font" }
-            fontSub.text = if (name.isEmpty()) "Noto Sans CJK JP" else "Kana and kanji in the lookup"
-            clearFont.visibility = if (name.isEmpty()) View.GONE else View.VISIBLE
-            font.visibility = if (prefs.dictionaryMode == Prefs.DICT_LOCAL) View.VISIBLE else View.GONE
-        }
+        fontGroup = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        font.addView(fontGroup)
+        font.addView(button("Load fonts…", Style.TONAL) { pickFonts() },
+            LinearLayout.LayoutParams(WRAP, dpi(40)).apply { topMargin = dpi(10) })
+        refreshers += { font.visibility = if (prefs.dictionaryMode == Prefs.DICT_LOCAL) View.VISIBLE else View.GONE }
 
         // Right column: what the chosen mode needs. Built once and shown or hidden, so typing keeps focus.
         val local = right.section("Yomitan dictionaries")
@@ -645,6 +630,65 @@ class MainActivity : Activity() {
                 (if (target.isEnabled) target else r).requestFocus()
             }
         }
+    }
+
+    /**
+     * The system font and every loaded font as a radio list, each with a sample in that font. [focus] puts D-pad focus
+     * back on a font's row after a rebuild.
+     */
+    private fun showFonts(focus: String? = null) {
+        fontGroup.removeAllViews()
+        val selected = prefs.lookupFont?.name.orEmpty()
+        val names = listOf("") + Prefs.fontDir(filesDir).listFiles().orEmpty().filter { it.isFile }.map { it.name }.sorted()
+        for ((i, name) in names.withIndex()) {
+            val pos = when {
+                names.size == 1 -> Pos.SINGLE
+                i == 0 -> Pos.TOP
+                i == names.lastIndex -> Pos.BOTTOM
+                else -> Pos.MIDDLE
+            }
+            val on = name == selected
+            val r = row(pos, minHeight = 62) {
+                prefs.lookupFontName = name
+                showFonts(focus = name)
+            }
+            r.background = tappable(p, radii(pos), if (on) p.sc else p.card)
+            r.announceAs("android.widget.RadioButton") { on }
+            r.addView(Indicator(this, p, Indicator.Kind.RADIO).apply { checked = on },
+                LinearLayout.LayoutParams(WRAP, WRAP).apply { marginEnd = dpi(14) })
+            val (texts, title, sample) = twoLine(name.ifEmpty { "System font" }, FONT_SAMPLE, subSize = 15f)
+            title.maxLines = 2
+            title.ellipsize = android.text.TextUtils.TruncateAt.END
+            title.setTextColor(if (on) p.onSc else p.on)
+            sample.setTextColor(if (on) p.onSc else p.onVar)
+            title.textLocale = Locale.JAPANESE
+            sample.textLocale = Locale.JAPANESE
+            if (name.isNotEmpty()) {
+                runCatching { Typeface.createFromFile(Prefs.fontFile(filesDir, name)) }.getOrNull()?.let {
+                    title.typeface = it
+                    sample.typeface = it
+                }
+            }
+            r.addView(texts, LinearLayout.LayoutParams(0, WRAP, 1f))
+            if (name.isNotEmpty()) {
+                r.addView(iconButton(R.drawable.ic_close, "Remove $name") {
+                    Prefs.fontFile(filesDir, name).delete()
+                    if (on) prefs.lookupFontName = ""
+                    showFonts()
+                })
+            }
+            fontGroup.card(r)
+            if (name == focus) r.requestFocus()
+        }
+    }
+
+    private fun pickFonts() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+            .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+            // Starts in the fonts folder on internal storage when there is one.
+            .putExtra(DocumentsContract.EXTRA_INITIAL_URI,
+                DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", "primary:fonts"))
+        startActivityForResult(intent, PICK_FONT)
     }
 
     // ---- Translate ----
@@ -1031,11 +1075,13 @@ class MainActivity : Activity() {
     // ---- Database and font import ----
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        val uri = data?.data
-        if (resultCode != RESULT_OK || uri == null) return
+        if (resultCode != RESULT_OK || data == null) return
         when (requestCode) {
-            PICK_DATABASE -> importDatabase(uri)
-            PICK_FONT -> importFont(uri)
+            PICK_DATABASE -> data.data?.let { importDatabase(it) }
+            PICK_FONT -> {
+                val clip = data.clipData
+                importFonts(if (clip != null) (0 until clip.itemCount).map { clip.getItemAt(it).uri } else listOfNotNull(data.data))
+            }
         }
     }
 
@@ -1059,26 +1105,39 @@ class MainActivity : Activity() {
         }.start()
     }
 
-    /** Copies a TTF, OTF or TTC in for the lookup page, once Android has parsed it as a font. */
-    private fun importFont(uri: Uri) {
-        val fileName = contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
-            if (c.moveToFirst()) c.getString(0) else null
-        }?.substringBeforeLast('.') ?: "Custom font"
+    /**
+     * Copies TTF, OTF or TTC files in for the lookup page, once Android has parsed each as a font, and picks the last
+     * one. A font with the same name as a loaded one replaces it.
+     */
+    private fun importFonts(uris: List<Uri>) {
+        if (uris.isEmpty()) return
         Thread {
-            var name = fileName
-            val target = Prefs.lookupFont(this)
-            val tmp = File(target.path + ".tmp")
-            val failure = runCatching {
-                contentResolver.openInputStream(uri)!!.use { input -> tmp.outputStream().use { input.copyTo(it) } }
-                android.graphics.fonts.Font.Builder(tmp).build() // throws if it isn't a font
-                fontName(tmp)?.let { name = it }
-                if (!tmp.renameTo(target)) error("couldn't replace the old font")
-            }.exceptionOrNull()
-            tmp.delete()
+            val dir = Prefs.fontDir(filesDir).apply { mkdirs() }
+            val loaded = mutableListOf<String>()
+            val failed = mutableListOf<String>()
+            for (uri in uris) {
+                val fileName = contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                    if (c.moveToFirst()) c.getString(0) else null
+                } ?: "Custom font"
+                val tmp = File(dir, ".importing")
+                runCatching {
+                    contentResolver.openInputStream(uri)!!.use { input -> tmp.outputStream().use { input.copyTo(it) } }
+                    android.graphics.fonts.Font.Builder(tmp).build() // throws if it isn't a font
+                    val name = fontName(tmp) ?: fileName.substringBeforeLast('.')
+                    if (!tmp.renameTo(Prefs.fontFile(filesDir, name))) error("couldn't save it")
+                    loaded += name
+                }.onFailure { failed += fileName }
+                tmp.delete()
+            }
             runOnUiThread {
-                if (failure == null) prefs.lookupFontName = name
-                Toast.makeText(this, failure?.let { "Couldn't load it: ${it.message ?: "not a font file"}" } ?: "Font loaded",
-                    Toast.LENGTH_LONG).show()
+                loaded.lastOrNull()?.let { prefs.lookupFontName = it }
+                showFonts(focus = loaded.lastOrNull())
+                val message = when {
+                    failed.isNotEmpty() -> "Not a font Android can read: ${failed.joinToString()}"
+                    loaded.size == 1 -> "Font loaded"
+                    else -> "${loaded.size} fonts loaded"
+                }
+                Toast.makeText(this, message, Toast.LENGTH_LONG).show()
             }
         }.start()
     }
@@ -1255,6 +1314,7 @@ class MainActivity : Activity() {
     companion object {
         private const val PICK_DATABASE = 1
         private const val PICK_FONT = 2
+        private const val FONT_SAMPLE = "あア 直 漢字"
         private const val KEY_SECTION = "section"
         private const val REPO_URL = "https://github.com/aypro/ocrclip"
         private const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT

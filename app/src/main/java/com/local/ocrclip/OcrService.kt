@@ -60,7 +60,7 @@ class OcrService : AccessibilityService() {
         dictionary = DictionaryOverlay(this)
         translator = DictionaryOverlay(this)
         localDictionary = LocalDictionary(this)
-        lookup = DictionaryOverlay(this, localDictionary) { path -> if (path == "/font") Prefs.lookupFont(this) else null }
+        lookup = DictionaryOverlay(this, localDictionary) { path -> if (path == "/font") prefs.lookupFont else null }
         popup = TranslationPopup(this)
         registerReceiver(
             captureReceiver, IntentFilter(ACTION_CAPTURE), android.Manifest.permission.DUMP, null,
@@ -204,8 +204,8 @@ class OcrService : AccessibilityService() {
     private fun openDictionary(text: String) {
         if (prefs.dictionaryMode == Prefs.DICT_LOCAL) {
             localDictionary.backSteps = 0
-            val font = Prefs.lookupFont(this).takeIf { prefs.lookupFontName.isNotEmpty() && it.exists() }
-            lookup.showPage(LookupPage.page(text, font?.lastModified()))
+            val font = prefs.lookupFont
+            lookup.showPage(LookupPage.page(text, font?.let { "${it.name.hashCode()}-${it.lastModified()}" }))
             return
         }
         val url = Prefs.fillTemplate(prefs.dictionaryUrl, text)
