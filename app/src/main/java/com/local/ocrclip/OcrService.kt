@@ -97,7 +97,10 @@ class OcrService : AccessibilityService() {
         openOverlay?.let { open ->
             val closes = action != null || code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_BUTTON_B
             if (!closes) return false
-            if (event.action == KeyEvent.ACTION_DOWN) open.hide()
+            if (event.action == KeyEvent.ACTION_DOWN) {
+                // After following links in the lookup page, B and Back step back through them before closing it.
+                if (open === lookup && action == null && localDictionary.backSteps > 0) lookup.run("back()") else open.hide()
+            }
             return true
         }
         if (!prefs.enabled || action == null) return false
@@ -200,6 +203,7 @@ class OcrService : AccessibilityService() {
 
     private fun openDictionary(text: String) {
         if (prefs.dictionaryMode == Prefs.DICT_LOCAL) {
+            localDictionary.backSteps = 0
             lookup.showPage(LookupPage.page(text))
             return
         }

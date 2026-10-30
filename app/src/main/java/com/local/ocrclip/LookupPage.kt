@@ -1,11 +1,13 @@
 package com.local.ocrclip
 
+import android.net.Uri
 import org.json.JSONArray
 import org.json.JSONObject
 
 /**
  * The offline dictionary overlay: the captured text, tappable per character, above the entries found from the
- * character picked. D-pad right jumps past the word just looked up, left steps back a character.
+ * character picked. D-pad right jumps past the word just looked up, left steps back a character. Cross-reference
+ * links in the entries look their word up in place; B returns.
  */
 object LookupPage {
     fun page(text: String) = """<!doctype html>
@@ -83,7 +85,7 @@ $SCRIPT
         return if (alt.isEmpty()) "" else "<span class=\"img\">${esc(alt)}</span>"
     }
 
-    /** Yomitan structured content, limited to its own tag set so a dictionary can't inject scripts or links. */
+    /** Yomitan structured content, limited to its own tag set so a dictionary can't inject scripts or real links. */
     private fun content(node: Any?): String = when (node) {
         is String -> esc(node)
         is JSONArray -> (0 until node.length()).joinToString("") { content(node.opt(it)) }
@@ -96,8 +98,7 @@ $SCRIPT
         when (tag) {
             "br" -> return "<br>"
             "img" -> return image(o)
-            // Links point into Yomitan's own search page; here they'd only navigate the overlay away.
-            "a" -> return "<span class=\"link\">${content(o.opt("content"))}</span>"
+            "a" -> return link(o)
             !in TAGS -> return content(o.opt("content"))
         }
         val attrs = StringBuilder()
@@ -108,6 +109,24 @@ $SCRIPT
         if (o.has("rowSpan")) attrs.append(" rowspan=\"${o.optInt("rowSpan", 1)}\"")
         if (tag == "details" && o.optBoolean("open")) attrs.append(" open")
         return "<$tag$attrs>${content(o.opt("content"))}</$tag>"
+    }
+
+    /**
+     * Internal links ("?query=見る&wildcards=off", maybe with "&primary_reading=") point at Yomitan's search page; the
+     * page script looks them up in place. Anything else (web pages, dictionary appendices) stays inert, since
+     * following it would only navigate the overlay away.
+     */
+    private fun link(o: JSONObject): String {
+        val inner = content(o.opt("content"))
+        val href = o.optString("href")
+        if (!href.startsWith("?")) return "<span class=\"link\">$inner</span>"
+        val params = href.substring(1).split('&').associate {
+            it.substringBefore('=') to Uri.decode(it.substringAfter('=', ""))
+        }
+        val query = params["query"].orEmpty()
+        if (query.isEmpty()) return "<span class=\"link\">$inner</span>"
+        val reading = params["primary_reading"].orEmpty()
+        return "<span class=\"link\" data-q=\"${esc(query)}\" data-r=\"${esc(reading)}\">$inner</span>"
     }
 
     private fun style(style: JSONObject): String = style.keys().asSequence().mapNotNull { key ->
@@ -184,6 +203,7 @@ li { white-space: pre-line; }
 .readings { color: #ccc; }
 .img { color: #aaa; font-style: italic; }
 .link { text-decoration: underline; }
+.link[data-q] { color: #6cb4ff; cursor: pointer; }
 table { border-collapse: collapse; }
 td, th { border: 1px solid #555; padding: 2px 6px; }
 .message { padding: 16px 0; color: #aaa; }
@@ -208,20 +228,44 @@ for (let i = 0; i < text.length;) {
     chars.push([i, span]);
     i += ch.length;
 }
-let pos = 0, len = 0;
-function go(offset) {
-    const r = JSON.parse(OCRClip.lookup(text, offset));
-    pos = offset;
-    len = r.length;
+let pos = 0, len = 0; // the word picked in the captured text
+// What the results show: {} for the captured-text word, {q, r} for a followed link. The history is what B returns to
+// (OcrService calls back()); picking a character starts over.
+let current = {};
+const history = [];
+function render(state) {
+    const onText = state.q === undefined;
+    const r = JSON.parse(onText ? OCRClip.lookup(text, pos) : OCRClip.lookupTerm(state.q, state.r));
+    if (onText) len = r.length;
     for (const [i, span] of chars) {
-        span.className = i === pos ? 'match cursor' : i > pos && i < pos + len ? 'match' : '';
+        span.className = !onText ? '' : i === pos ? 'match cursor' : i > pos && i < pos + len ? 'match' : '';
     }
+    current = state;
     results.innerHTML = r.html;
-    // A long capture scrolls inside its own box (it would otherwise cover the results); keep the cursor in view.
-    const cursor = chars.find(([i]) => i === pos);
-    if (cursor) cursor[1].scrollIntoView({ block: 'nearest' });
+    if (onText) {
+        // A long capture scrolls inside its own box (it would otherwise cover the results); keep the cursor in view.
+        const cursor = chars.find(([i]) => i === pos);
+        if (cursor) cursor[1].scrollIntoView({ block: 'nearest' });
+    }
     window.scrollTo(0, 0);
+    OCRClip.setHistory(history.length);
 }
+function go(offset) {
+    pos = offset;
+    history.length = 0;
+    render({});
+}
+function follow(q, r) {
+    history.push(current);
+    render({ q, r });
+}
+function back() {
+    if (history.length) render(history.pop());
+}
+results.addEventListener('click', (e) => {
+    const link = e.target.closest('.link[data-q]');
+    if (link) follow(link.dataset.q, link.dataset.r);
+});
 document.addEventListener('keydown', (e) => {
     const k = chars.findIndex(([i]) => i === pos);
     if (e.key === 'ArrowRight') {

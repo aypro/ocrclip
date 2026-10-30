@@ -56,6 +56,10 @@ class DictionaryOverlay(context: Context, private val bridge: Any? = null) : Ove
         web.requestFocus()
     }
 
+    fun run(js: String) {
+        webView?.evaluateJavascript(js, null)
+    }
+
     private fun attach(view: FrameLayout) {
         if (!isShowing) {
             windowManager.addView(view, WindowManager.LayoutParams(

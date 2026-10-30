@@ -14,7 +14,7 @@ It runs as an accessibility service: hotkey → screenshot → optional crop to 
 - **After capture**:
   - **Just copy**: only copies the text.
   - **Dictionary overlay**: shows a WebView over the game. B, Back, the hotkey or tapping outside it closes it.
-  - **Yomitan dictionaries (offline)**: looks the text up in your own [Yomitan](https://github.com/yomidevs/yomitan) dictionaries, over the game. Inflected words are found with Yomitan's deinflection rules (食べなかった → 食べる). Tap a character to look up the word starting there, or use D-pad right/left to move through the sentence. See [Offline Yomitan dictionaries](#offline-yomitan-dictionaries).
+  - **Yomitan dictionaries (offline)**: looks the text up in your own [Yomitan](https://github.com/yomidevs/yomitan) dictionaries, over the game. Inflected words are found with Yomitan's deinflection rules (食べなかった → 食べる). Tap a character to look up the word starting there, or use D-pad right/left to move through the sentence. Cross-reference links in the entries (⇒ 見る) look that word up in place; B goes back. See [Offline Yomitan dictionaries](#offline-yomitan-dictionaries).
   - **Browser**: opens the dictionary in your browser.
 - **Dictionary URL template**: `{text}` is replaced with the captured text, e.g. `https://jisho.hlorenzi.com/search/{text}` (the default). The overlay adds ` OCRClip/1` to its user agent, so a self-hosted jisho can switch to a compact layout.
 - **Translate hotkey** (optional): a second button that reads the text the same way, then translates it with DeepL instead of opening the dictionary.

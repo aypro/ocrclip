@@ -106,11 +106,29 @@ class LocalDictionary(private val context: Context) {
             { it.first })).map { it.second }
     }
 
+    /** How many steps back the lookup page can go after following links; while above 0, B steps back instead of closing. */
+    @Volatile var backSteps = 0
+
     @JavascriptInterface
-    fun lookup(text: String, offset: Int): String {
+    fun setHistory(depth: Int) {
+        backSteps = depth
+    }
+
+    @JavascriptInterface
+    fun lookup(text: String, offset: Int): String = respond { find(text, offset) }
+
+    /** A followed link: [term] scanned like Yomitan's search page, with entries read as [reading] first if given. */
+    @JavascriptInterface
+    fun lookupTerm(term: String, reading: String): String = respond {
+        find(term, 0)?.let { r ->
+            if (reading.isEmpty()) r else Result(r.length, r.entries.sortedBy { it.reading != reading }, r.kanji, r.message)
+        }
+    }
+
+    private fun respond(lookup: () -> Result?): String {
         val json = JSONObject()
         try {
-            val result = find(text, offset)
+            val result = lookup()
             json.put("length", result?.length ?: 0)
             json.put("html", if (result == null) LookupPage.message(
                 error?.let { "The dictionary database couldn't be opened: $it" }
