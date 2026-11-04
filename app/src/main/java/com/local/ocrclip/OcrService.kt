@@ -37,6 +37,10 @@ class OcrService : AccessibilityService() {
     private lateinit var localDictionary: LocalDictionary
     private lateinit var lookup: DictionaryOverlay
     private lateinit var popup: TranslationPopup
+    private lateinit var anki: Anki
+
+    /** The text the lookup page shows, for the Sentence field of Anki notes. */
+    @Volatile private var lookupText = ""
     private val openOverlay get() = listOf(dictionary, translator, lookup, popup).firstOrNull { it.isShowing }
 
     /** Bumped per DeepL request, so a late answer for a closed or replaced popup is dropped. */
@@ -62,6 +66,7 @@ class OcrService : AccessibilityService() {
         localDictionary = LocalDictionary(this)
         lookup = DictionaryOverlay(this, localDictionary) { path -> if (path == "/font") prefs.lookupFont else null }
         popup = TranslationPopup(this)
+        anki = Anki(this)
         registerReceiver(
             captureReceiver, IntentFilter(ACTION_CAPTURE), android.Manifest.permission.DUMP, null,
             Context.RECEIVER_EXPORTED,
@@ -204,6 +209,8 @@ class OcrService : AccessibilityService() {
     private fun openDictionary(text: String) {
         if (prefs.dictionaryMode == Prefs.DICT_LOCAL) {
             localDictionary.backSteps = 0
+            lookupText = text
+            localDictionary.anki = if (prefs.ankiModel >= 0 && anki.installed && anki.permitted) ::addToAnki else null
             val font = prefs.lookupFont
             lookup.showPage(LookupPage.page(text, font?.let { "${it.name.hashCode()}-${it.lastModified()}" }))
             return
@@ -218,6 +225,36 @@ class OcrService : AccessibilityService() {
         } catch (e: ActivityNotFoundException) {
             Toast.makeText(this, "No app can open $url", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    /**
+     * Adds a note for [definition] of [entry] to AnkiDroid, with the screenshot of this capture (the lookup overlay
+     * closes before another capture replaces it). Runs on the lookup page's bridge thread. Returns an error or null.
+     */
+    private fun addToAnki(entry: LocalDictionary.Entry, definition: LocalDictionary.Definition, offset: Int): String? {
+        val error = try {
+            val model = anki.model(prefs.ankiModel)
+            if (model == null) {
+                "The Anki note type is gone; pick one in OCR Clip's settings"
+            } else {
+                val shot = Prefs.lastScreenshot(this)
+                val picture = if (AnkiNote.wantsPicture(model.fields) && shot.exists()) {
+                    anki.addMedia(ShareProvider.screenshot, "ocrclip_${entry.term}")
+                } else null
+                val fields = AnkiNote.fields(model.fields, AnkiNote.Source(
+                    entry, definition, lookupText, offset, picture, localDictionary.styles,
+                ))
+                val deck = prefs.ankiDeck.takeIf { it >= 0 } ?: Anki.DEFAULT_DECK
+                anki.addNote(model.id, deck, fields, prefs.ankiTags.split(' ').filter { it.isNotBlank() })
+                null
+            }
+        } catch (e: SecurityException) {
+            "Allow OCR Clip to use AnkiDroid in its settings"
+        } catch (e: Exception) {
+            "Anki: ${e.message}"
+        }
+        error?.let { main.post { Toast.makeText(this, it, Toast.LENGTH_LONG).show() } }
+        return error
     }
 
     private fun done(message: String?) {

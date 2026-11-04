@@ -20,15 +20,18 @@ class LocalDictionary(private val context: Context) {
         val id: Int, val title: String, val terms: Int, val meta: Int, val kanji: Int, val enabled: Boolean,
     )
 
-    class Definition(val dictionary: String, val tags: List<Pair<String, String>>, val glossary: JSONArray)
+    class Tag(val name: String, val category: String, val notes: String)
+
+    class Definition(val dictionary: String, val tags: List<Tag>, val glossary: JSONArray)
 
     class Frequency(val dictionary: String, val value: String)
 
     class Pitch(val dictionary: String, val positions: List<String>)
 
+    /** [length] is how much of the scanned text this entry's term covers. */
     class Entry(
         val term: String, val reading: String, val reasons: List<String>, val definitions: List<Definition>,
-        val frequencies: List<Frequency>, val pitches: List<Pitch>,
+        val frequencies: List<Frequency>, val pitches: List<Pitch>, val length: Int,
     )
 
     class Kanji(
@@ -49,10 +52,15 @@ class LocalDictionary(private val context: Context) {
         Deinflector(context.assets.open("japanese-transforms.json").bufferedReader().use { it.readText() })
     }
     private var db: SQLiteDatabase? = null
-    private var tagNotes = emptyMap<String, String>()
+    /** (category, notes) by "dictionary id:tag name". */
+    private var tags = emptyMap<String, Pair<String, String>>()
 
     /** Each dictionary's deflate preset, which its compressed glossaries were built against. */
     private var presets = emptyMap<Int, ByteArray?>()
+
+    /** Each dictionary's styles.css by title, for Anki notes (databases since schema 3 keep it). */
+    @Volatile var styles = emptyMap<String, String>()
+        private set
 
     /** lastModified of the open file, so a database loaded in the settings replaces the open one. */
     private var opened = 0L
@@ -69,13 +77,16 @@ class LocalDictionary(private val context: Context) {
         if (!f.exists()) return null
         opened = f.lastModified()
         db = runCatching { open(f) }.onFailure { error = it.message }.getOrNull()?.also { d ->
-            val notes = HashMap<String, String>()
-            d.rawQuery("SELECT dict_id, name, notes FROM tags", null).use { c ->
-                while (c.moveToNext()) notes["${c.getInt(0)}:${c.getString(1)}"] = c.getString(2)
+            val found = HashMap<String, Pair<String, String>>()
+            d.rawQuery("SELECT dict_id, name, category, notes FROM tags", null).use { c ->
+                while (c.moveToNext()) found["${c.getInt(0)}:${c.getString(1)}"] = c.getString(2) to c.getString(3)
             }
-            tagNotes = notes
+            tags = found
             presets = d.rawQuery("SELECT id, preset FROM dictionaries", null).use { c ->
                 buildMap { while (c.moveToNext()) put(c.getInt(0), if (c.isNull(1)) null else c.getBlob(1)) }
+            }
+            styles = if (d.version < 3) emptyMap() else d.rawQuery("SELECT title, styles FROM dictionaries", null).use { c ->
+                buildMap { while (c.moveToNext()) if (!c.isNull(1) && c.getString(1).isNotBlank()) put(c.getString(0), c.getString(1)) }
             }
         }
         return db
@@ -86,6 +97,7 @@ class LocalDictionary(private val context: Context) {
         db?.close()
         db = null
         error = null
+        styles = emptyMap()
     }
 
     /** Dictionaries in display order, or null without a database. */
@@ -114,6 +126,27 @@ class LocalDictionary(private val context: Context) {
         backSteps = depth
     }
 
+    /** The result the page shows, so a + button's indices can be resolved. */
+    @Volatile private var shown: Result? = null
+
+    /**
+     * Set by the service while Anki is set up, so the page shows + buttons: adds a note for one definition of an entry,
+     * with the offset of the word in the captured text (-1 for a followed link). Returns an error message or null.
+     */
+    @Volatile var anki: ((Entry, Definition, Int) -> String?)? = null
+
+    @JavascriptInterface
+    fun addToAnki(entry: Int, definition: Int, offset: Int): String {
+        val add = anki ?: return "Anki isn't set up in OCR Clip's settings"
+        val e = shown?.entries?.getOrNull(entry)
+        val d = e?.definitions?.getOrNull(definition) ?: return "That entry is gone, look it up again"
+        return try {
+            add(e, d, offset) ?: ""
+        } catch (x: Exception) {
+            "Anki: ${x.message}"
+        }
+    }
+
     @JavascriptInterface
     fun lookup(text: String, offset: Int): String = respond { find(text, offset) }
 
@@ -129,12 +162,13 @@ class LocalDictionary(private val context: Context) {
         val json = JSONObject()
         try {
             val result = lookup()
+            shown = result
             json.put("length", result?.length ?: 0)
             json.put("html", if (result == null) LookupPage.message(
                 error?.let { "The dictionary database couldn't be opened: $it" }
                     ?: "No dictionary database loaded. Build one on a PC with tools/build_dict.py, then load it in " +
                     "OCR Clip's settings."
-            ) else LookupPage.results(result))
+            ) else LookupPage.results(result, anki = anki != null))
         } catch (e: Exception) {
             json.put("length", 0).put("html", LookupPage.message("Lookup failed: ${e.message}"))
         }
@@ -195,11 +229,14 @@ class LocalDictionary(private val context: Context) {
             Entry(
                 best.term, best.reading, best.reasons,
                 group.map { m ->
-                    Definition(m.dictionary.title, m.tags.map { it to (tagNotes["${m.dictionary.id}:$it"] ?: "") },
-                        JSONArray(glossaries.getValue(m.id)))
+                    Definition(m.dictionary.title, m.tags.map { name ->
+                        val (category, notes) = tags["${m.dictionary.id}:$name"] ?: ("" to "")
+                        Tag(name, category, notes)
+                    }, JSONArray(glossaries.getValue(m.id)))
                 },
                 forms.mapNotNull { it.frequency?.let { f -> Frequency(it.dictionary, f) } },
                 forms.mapNotNull { it.pitches?.let { p -> Pitch(it.dictionary, p) } },
+                best.length,
             )
         }
         return Result(matches.maxOfOrNull { it.length } ?: 0, entries, kanji(db, text, offset, byId, rank))
@@ -271,7 +308,10 @@ class LocalDictionary(private val context: Context) {
     }
 
     companion object {
-        const val SCHEMA_VERSION = 2 // tools/build_dict.py SCHEMA_VERSION
+        const val SCHEMA_VERSION = 3 // tools/build_dict.py SCHEMA_VERSION
+
+        /** Schema 2 only lacks dictionaries.styles, so it still opens; Anki notes then come without dictionary CSS. */
+        private const val MIN_SCHEMA_VERSION = 2
         private const val MAX_LENGTH = 16
         private const val MAX_ENTRIES = 32
 
@@ -282,7 +322,7 @@ class LocalDictionary(private val context: Context) {
 
         private fun open(file: File): SQLiteDatabase {
             val db = SQLiteDatabase.openDatabase(file.path, null, SQLiteDatabase.OPEN_READONLY)
-            if (db.version != SCHEMA_VERSION) {
+            if (db.version !in MIN_SCHEMA_VERSION..SCHEMA_VERSION) {
                 db.close()
                 throw IllegalStateException("it was built by a different version of tools/build_dict.py, rebuild it")
             }

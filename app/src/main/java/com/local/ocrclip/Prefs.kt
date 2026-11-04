@@ -97,6 +97,29 @@ class Prefs(context: Context) {
     val lookupFont: File?
         get() = lookupFontName.takeIf { it.isNotEmpty() }?.let { fontFile(filesDir, it) }?.takeIf { it.exists() }
 
+    /** AnkiDroid note type the lookup's + buttons add to; -1 until one is picked. The name is only shown. */
+    var ankiModel: Long
+        get() = sp.getLong("anki_model", -1)
+        set(v) = sp.edit().putLong("anki_model", v).apply()
+
+    var ankiModelName: String
+        get() = sp.getString("anki_model_name", "") ?: ""
+        set(v) = sp.edit().putString("anki_model_name", v).apply()
+
+    /** AnkiDroid deck for new notes; -1 means Anki's Default deck. */
+    var ankiDeck: Long
+        get() = sp.getLong("anki_deck", -1)
+        set(v) = sp.edit().putLong("anki_deck", v).apply()
+
+    var ankiDeckName: String
+        get() = sp.getString("anki_deck_name", "") ?: ""
+        set(v) = sp.edit().putString("anki_deck_name", v).apply()
+
+    /** Space-separated tags for new notes. */
+    var ankiTags: String
+        get() = sp.getString("anki_tags", DEFAULT_ANKI_TAGS) ?: DEFAULT_ANKI_TAGS
+        set(v) = sp.edit().putString("anki_tags", v).apply()
+
     var lastResult: String
         get() = sp.getString("last_result", "") ?: ""
         set(v) = sp.edit().putString("last_result", v).apply()
@@ -128,6 +151,7 @@ class Prefs(context: Context) {
         const val DEFAULT_DICTIONARY_URL = "https://jisho.hlorenzi.com/search/{text}"
         const val DEFAULT_TRANSLATE_URL = "https://www.deepl.com/translator#ja/en/{text}"
         const val DEFAULT_DEEPL_TARGET = "EN-US"
+        const val DEFAULT_ANKI_TAGS = "ocrclip"
 
         fun lastScreenshot(context: Context) = File(context.cacheDir, "last_screenshot.jpg")
 

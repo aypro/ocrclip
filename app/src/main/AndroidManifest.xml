@@ -12,6 +12,13 @@
         android:name="android.permission.WRITE_SECURE_SETTINGS"
         tools:ignore="ProtectedPermissions" />
 
+    <!-- Adding notes to AnkiDroid from the offline lookup page. -->
+    <uses-permission android:name="com.ichi2.anki.permission.READ_WRITE_DATABASE" />
+
+    <queries>
+        <package android:name="com.ichi2.anki" />
+    </queries>
+
     <application
         android:allowBackup="true"
         android:icon="@android:drawable/ic_menu_crop"
@@ -33,6 +40,13 @@
             android:name=".RegionActivity"
             android:exported="false"
             android:theme="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen" />
+
+        <!-- Serves the capture's screenshot to AnkiDroid through a per-URI grant. -->
+        <provider
+            android:name=".ShareProvider"
+            android:authorities="com.local.ocrclip.files"
+            android:exported="false"
+            android:grantUriPermissions="true" />
 
         <receiver
             android:name=".BootReceiver"

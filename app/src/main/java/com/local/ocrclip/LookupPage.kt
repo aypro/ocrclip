@@ -33,11 +33,12 @@ body { font-family: OCRClipJa, sans-serif; }
 
     fun message(text: String) = "<div class=\"message\">${esc(text)}</div>"
 
-    fun results(result: LocalDictionary.Result): String {
+    /** [anki] adds a + button to each definition, which the page script sends to `OCRClip.addToAnki`. */
+    fun results(result: LocalDictionary.Result, anki: Boolean = false): String {
         result.message?.let { return message(it) }
         if (result.entries.isEmpty() && result.kanji.isEmpty()) return message("No entries")
         return buildString {
-            for (e in result.entries) {
+            for ((ei, e) in result.entries.withIndex()) {
                 append("<div class=\"entry\"><div class=\"head\">")
                 if (e.reading.isNotEmpty() && e.reading != e.term) {
                     append("<ruby class=\"term\">${esc(e.term)}<rt>${esc(e.reading)}</rt></ruby>")
@@ -51,14 +52,15 @@ body { font-family: OCRClipJa, sans-serif; }
                     append("<div class=\"reasons\">« ${e.reasons.joinToString(" « ") { esc(it) }}</div>")
                 }
                 var dictionary: String? = null
-                for (d in e.definitions) {
+                for ((di, d) in e.definitions.withIndex()) {
                     if (d.dictionary != dictionary) {
                         if (dictionary != null) append("</ol>")
                         append("<div class=\"dict\">${esc(d.dictionary)}</div><ol>")
                         dictionary = d.dictionary
                     }
                     append("<li>")
-                    for ((name, notes) in d.tags) append("<span class=\"tag\" title=\"${esc(notes)}\">${esc(name)}</span>")
+                    if (anki) append("<span class=\"add\" data-e=\"$ei\" data-d=\"$di\">+</span>")
+                    for (t in d.tags) append("<span class=\"tag\" title=\"${esc(t.notes)}\">${esc(t.name)}</span>")
                     append(glossary(d.glossary))
                     append("</li>")
                 }
@@ -76,15 +78,96 @@ body { font-family: OCRClipJa, sans-serif; }
     }
 
     private fun glossary(items: JSONArray): String {
-        val parts = (0 until items.length()).map { item(items.opt(it)) }.filter { it.isNotEmpty() }
+        val parts = (0 until items.length()).map { item(items.opt(it), false) }.filter { it.isNotEmpty() }
         return if (parts.size == 1) parts[0] else "<ul class=\"gloss\">${parts.joinToString("") { "<li>$it</li>" }}</ul>"
     }
 
-    private fun item(item: Any?): String = when (item) {
+    /**
+     * [definitions] as Yomitan writes its {glossary} into Anki fields: the same markup, class names (gloss-sc-*) and
+     * data-sc-* attributes, so note types made for Yomitan (Lapis) style them the same way. Each dictionary's
+     * styles.css follows in a <style>, scoped to that dictionary's entries.
+     */
+    fun ankiGlossary(definitions: List<LocalDictionary.Definition>, styles: Map<String, String>): String = buildString {
+        append("<div class=\"yomitan-glossary\"><ol data-count=\"${definitions.size}\">")
+        for (d in definitions) {
+            val styled = d.dictionary in styles
+            append("<li data-dictionary=\"${esc(d.dictionary)}\"${if (styled) " data-has-styles=\"\"" else ""}>")
+            for (t in d.tags) {
+                append("<span class=\"gloss-tag\" data-category=\"${esc(t.category)}\" title=\"${esc(t.notes)}\">")
+                append(esc(t.name).replace(" ", "&nbsp;")).append("</span>")
+            }
+            append("<i>(${esc(d.dictionary)})</i>")
+            val items = (0 until d.glossary.length()).map { item(d.glossary.opt(it), true) }.filter { it.isNotEmpty() }
+            append("<ul class=\"gloss-list\" data-count=\"${items.size}\">")
+            for (it in items) append("<li class=\"gloss-item\"><div class=\"gloss-content\">$it</div></li>")
+            append("</ul></li>")
+        }
+        append("</ol></div>")
+        val css = definitions.map { it.dictionary }.distinct().mapNotNull { title -> styles[title]?.let { scopeCss(it, title) } }
+        if (css.isNotEmpty()) append("<style>${css.joinToString("")}</style>")
+    }
+
+    /**
+     * Prefixes every selector of a dictionary's styles.css with `.yomitan-glossary [data-dictionary="title"]`, as
+     * Yomitan does for Anki, so its rules reach only its own entries. Rules inside @media and @supports are scoped
+     * too; other at-rules are copied as they are.
+     */
+    fun scopeCss(css: String, title: String): String {
+        val prefix = ".yomitan-glossary [data-dictionary=\"${title.replace("\\", "\\\\").replace("\"", "\\\"")}\"]"
+        // No "<" can end the <style> element early; CSS doesn't need it outside strings.
+        return scope(css.replace(Regex("""/\*[\s\S]*?\*/"""), "").replace("<", ""), prefix)
+    }
+
+    private fun scope(css: String, prefix: String): String = buildString {
+        var i = 0
+        while (true) {
+            val open = css.indexOf('{', i)
+            if (open < 0) break
+            var depth = 0
+            var close = open
+            while (close < css.length) {
+                if (css[close] == '{') depth++
+                if (css[close] == '}' && --depth == 0) break
+                close++
+            }
+            // Anything before the last ';' is a statement such as @charset or @import, which doesn't belong in a field.
+            val prelude = css.substring(i, open).substringAfterLast(';').trim()
+            val block = css.substring(open + 1, close.coerceAtMost(css.length))
+            when {
+                prelude.startsWith("@media") || prelude.startsWith("@supports") ->
+                    append(prelude).append(" {").append(scope(block, prefix)).append("}")
+                prelude.startsWith("@") -> append(prelude).append(" {").append(block).append("}")
+                prelude.isNotEmpty() ->
+                    append(selectors(prelude).joinToString(", ") { "$prefix $it" }).append(" {").append(block.trim()).append("}\n")
+            }
+            i = close + 1
+        }
+    }
+
+    /** A selector list split at its top-level commas, so :is(a, b) stays whole. */
+    private fun selectors(list: String): List<String> {
+        val out = mutableListOf<String>()
+        var depth = 0
+        var start = 0
+        for ((i, ch) in list.withIndex()) {
+            when (ch) {
+                '(', '[' -> depth++
+                ')', ']' -> depth--
+                ',' -> if (depth == 0) {
+                    out += list.substring(start, i).trim()
+                    start = i + 1
+                }
+            }
+        }
+        out += list.substring(start).trim()
+        return out.filter { it.isNotEmpty() }
+    }
+
+    private fun item(item: Any?, anki: Boolean): String = when (item) {
         is String -> esc(item)
         is JSONObject -> when (item.optString("type")) {
             "text" -> esc(item.optString("text"))
-            "structured-content" -> content(item.opt("content"))
+            "structured-content" -> content(item.opt("content"), anki)
             "image" -> image(item)
             else -> ""
         }
@@ -97,40 +180,61 @@ body { font-family: OCRClipJa, sans-serif; }
         return if (alt.isEmpty()) "" else "<span class=\"img\">${esc(alt)}</span>"
     }
 
-    /** Yomitan structured content, limited to its own tag set so a dictionary can't inject scripts or real links. */
-    private fun content(node: Any?): String = when (node) {
+    /**
+     * Yomitan structured content, limited to its own tag set so a dictionary can't inject scripts or real links. For
+     * [anki], elements also get Yomitan's gloss-sc-* class and data-sc-* attributes, which dictionary styles select on.
+     */
+    private fun content(node: Any?, anki: Boolean): String = when (node) {
         is String -> esc(node)
-        is JSONArray -> (0 until node.length()).joinToString("") { content(node.opt(it)) }
-        is JSONObject -> element(node)
+        is JSONArray -> (0 until node.length()).joinToString("") { content(node.opt(it), anki) }
+        is JSONObject -> element(node, anki)
         else -> ""
     }
 
-    private fun element(o: JSONObject): String {
+    private fun element(o: JSONObject, anki: Boolean): String {
         val tag = o.optString("tag")
         when (tag) {
             "br" -> return "<br>"
             "img" -> return image(o)
-            "a" -> return link(o)
-            !in TAGS -> return content(o.opt("content"))
+            "a" -> return link(o, anki)
+            !in TAGS -> return content(o.opt("content"), anki)
         }
         val attrs = StringBuilder()
+        if (anki) {
+            attrs.append(" class=\"gloss-sc-$tag\"")
+            o.optJSONObject("data")?.let { data ->
+                for (key in data.keys()) {
+                    if (!key.all { it.isLetterOrDigit() || it == '-' }) continue
+                    // Yomitan sets element.dataset["sc" + Key], so "Contents" and "contents" both become data-sc-contents.
+                    val name = kebab("sc" + key.replaceFirstChar { it.uppercaseChar() })
+                    attrs.append(" data-$name=\"${esc(data.opt(key).toString())}\"")
+                }
+            }
+        }
         o.optJSONObject("style")?.let { style(it) }?.takeIf { it.isNotEmpty() }?.let { attrs.append(" style=\"${esc(it)}\"") }
         o.optString("title").takeIf { it.isNotEmpty() }?.let { attrs.append(" title=\"${esc(it)}\"") }
         o.optString("lang").takeIf { it.isNotEmpty() }?.let { attrs.append(" lang=\"${esc(it)}\"") }
         if (o.has("colSpan")) attrs.append(" colspan=\"${o.optInt("colSpan", 1)}\"")
         if (o.has("rowSpan")) attrs.append(" rowspan=\"${o.optInt("rowSpan", 1)}\"")
         if (tag == "details" && o.optBoolean("open")) attrs.append(" open")
-        return "<$tag$attrs>${content(o.opt("content"))}</$tag>"
+        return "<$tag$attrs>${content(o.opt("content"), anki)}</$tag>"
     }
+
+    private fun kebab(name: String) = name.replace(Regex("[A-Z]")) { "-" + it.value.lowercase() }
 
     /**
      * Internal links ("?query=見る&wildcards=off", maybe with "&primary_reading=") point at Yomitan's search page; the
      * page script looks them up in place. Anything else (web pages, dictionary appendices) stays inert, since
      * following it would only navigate the overlay away.
      */
-    private fun link(o: JSONObject): String {
-        val inner = content(o.opt("content"))
+    private fun link(o: JSONObject, anki: Boolean): String {
+        val inner = content(o.opt("content"), anki)
         val href = o.optString("href")
+        if (anki) {
+            // On a card a web link can open; an internal one would lead nowhere, so it keeps only the look of a link.
+            val web = href.startsWith("https://") || href.startsWith("http://")
+            return "<a class=\"gloss-sc-a\"${if (web) " href=\"${esc(href)}\"" else ""}>$inner</a>"
+        }
         if (!href.startsWith("?")) return "<span class=\"link\">$inner</span>"
         val params = href.substring(1).split('&').associate {
             it.substringBefore('=') to Uri.decode(it.substringAfter('=', ""))
@@ -150,7 +254,7 @@ body { font-family: OCRClipJa, sans-serif; }
             else -> return@mapNotNull null
         }
         if (!SAFE_CSS.matches(value) || "url" in value.lowercase()) return@mapNotNull null
-        "${key.replace(Regex("[A-Z]")) { "-" + it.value.lowercase() }}:$value"
+        "${kebab(key)}:$value"
     }.joinToString(";")
 
     /** Reading with the pitch accent drawn over it: a line over high morae and a tick at the drop. */
@@ -216,6 +320,10 @@ li { white-space: pre-line; }
 .img { color: #aaa; font-style: italic; }
 .link { text-decoration: underline; }
 .link[data-q] { color: #6cb4ff; cursor: pointer; }
+.add { float: right; min-width: 40px; height: 32px; margin: 0 0 4px 10px; border-radius: 16px; background: #2d4f6c;
+    color: #fff; text-align: center; font-size: 22px; line-height: 32px; cursor: pointer; white-space: nowrap; }
+.add.busy { opacity: 0.6; }
+.add.done { background: #2e5d3a; }
 table { border-collapse: collapse; }
 td, th { border: 1px solid #555; padding: 2px 6px; }
 .message { padding: 16px 0; color: #aaa; }
@@ -275,6 +383,25 @@ function back() {
     if (history.length) render(history.pop());
 }
 results.addEventListener('click', (e) => {
+    const add = e.target.closest('.add');
+    if (add) {
+        if (add.classList.contains('busy') || add.classList.contains('done')) return;
+        add.classList.add('busy');
+        add.textContent = '…';
+        const offset = current.q === undefined ? pos : -1; // where the word is in the captured text
+        // Let the dots paint before the bridge call holds up the page.
+        setTimeout(() => {
+            const error = OCRClip.addToAnki(+add.dataset.e, +add.dataset.d, offset);
+            add.classList.remove('busy');
+            if (error) {
+                add.textContent = '+';
+            } else {
+                add.classList.add('done');
+                add.textContent = '✓';
+            }
+        }, 30);
+        return;
+    }
     const link = e.target.closest('.link[data-q]');
     if (link) follow(link.dataset.q, link.dataset.r);
 });

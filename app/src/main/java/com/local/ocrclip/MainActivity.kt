@@ -84,6 +84,8 @@ class MainActivity : Activity() {
     private lateinit var dictGroup: LinearLayout
     private lateinit var dictHelp: TextView
     private lateinit var fontGroup: LinearLayout
+    private lateinit var ankiGroup: LinearLayout
+    private lateinit var anki: Anki
 
     /** Which hotkey the next key press binds, or null when not binding. */
     private var binding: Binding? = null
@@ -96,6 +98,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
         localDictionary = LocalDictionary(this)
+        anki = Anki(this)
         p = Palette(this)
         // Pure black, so the Retroids' OLED screens switch those pixels off.
         window.decorView.setBackgroundColor(Color.BLACK)
@@ -118,6 +121,7 @@ class MainActivity : Activity() {
         refresh()
         showDictionaries()
         showFonts()
+        showAnki()
     }
 
     override fun onPause() {
@@ -524,6 +528,16 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(WRAP, dpi(40)).apply { topMargin = dpi(10) })
         refreshers += { font.visibility = if (prefs.dictionaryMode == Prefs.DICT_LOCAL) View.VISIBLE else View.GONE }
 
+        val ankiBox = left.section("Anki")
+        ankiGroup = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        ankiBox.addView(ankiGroup)
+        val (tagsField, _) = field("Tags", prefs.ankiTags, InputType.TYPE_TEXT_VARIATION_NORMAL) { prefs.ankiTags = it }
+        ankiBox.addView(tagsField, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dpi(10) })
+        ankiBox.addView(helper("+ next to a definition adds a note to AnkiDroid: the word, that definition, the sentence " +
+            "and the screenshot. Fields are filled by name, like Yomitan fills Lapis (Expression, MainDefinition, " +
+            "Sentence, Picture…)."))
+        refreshers += { ankiBox.visibility = if (prefs.dictionaryMode == Prefs.DICT_LOCAL) View.VISIBLE else View.GONE }
+
         // Right column: what the chosen mode needs. Built once and shown or hidden, so typing keeps focus.
         val local = right.section("Yomitan dictionaries")
         dictGroup = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -682,6 +696,72 @@ class MainActivity : Activity() {
         }
     }
 
+    /** AnkiDroid's state, or the note type and deck rows once OCR Clip may use it. */
+    private fun showAnki() {
+        ankiGroup.removeAllViews()
+        val (status, problem) = when {
+            !anki.installed -> "Not installed" to "Install AnkiDroid to add notes from the lookup."
+            !anki.permitted -> "Needs access" to "OCR Clip needs your permission to add notes to AnkiDroid."
+            else -> null to null
+        }
+        if (status != null) {
+            val r = row(Pos.SINGLE, minHeight = 64).apply { setPadding(dpi(16), dpi(8), dpi(10), dpi(8)) }
+            r.addView(twoLine("AnkiDroid · $status", problem!!).first, LinearLayout.LayoutParams(0, WRAP, 1f))
+            if (anki.installed) {
+                r.addView(button("Allow", Style.TONAL) { requestPermissions(arrayOf(Anki.PERMISSION), REQUEST_ANKI) },
+                    LinearLayout.LayoutParams(WRAP, dpi(40)))
+            }
+            ankiGroup.card(r)
+            return
+        }
+        if (prefs.ankiModel < 0) {
+            // Preselect Lapis, the note type the field names follow, when it's there.
+            runCatching { anki.models() }.getOrNull()
+                ?.let { models -> models.firstOrNull { it.name == "Lapis+" } ?: models.firstOrNull { "lapis" in it.name.lowercase() } }
+                ?.let {
+                    prefs.ankiModel = it.id
+                    prefs.ankiModelName = it.name
+                }
+        }
+        val model = row(Pos.TOP, minHeight = 62) { pickAnkiModel() }
+        model.addView(twoLine("Note type", prefs.ankiModelName.ifEmpty { "Choose a note type" }).first,
+            LinearLayout.LayoutParams(0, WRAP, 1f))
+        model.addView(icon(R.drawable.ic_expand, p.onVar), LinearLayout.LayoutParams(dpi(20), dpi(20)))
+        ankiGroup.card(model)
+        val deck = row(Pos.BOTTOM, minHeight = 62) { pickAnkiDeck() }
+        deck.addView(twoLine("Deck", prefs.ankiDeckName.ifEmpty { "Default" }).first, LinearLayout.LayoutParams(0, WRAP, 1f))
+        deck.addView(icon(R.drawable.ic_expand, p.onVar), LinearLayout.LayoutParams(dpi(20), dpi(20)))
+        ankiGroup.card(deck)
+    }
+
+    private fun pickAnkiModel() {
+        val models = runCatching { anki.models() }.getOrElse {
+            Toast.makeText(this, "AnkiDroid: ${it.message}", Toast.LENGTH_LONG).show()
+            return
+        }
+        choose("Note type", models.map { it.id to it.name }, prefs.ankiModel) { id ->
+            prefs.ankiModel = id
+            prefs.ankiModelName = models.first { it.id == id }.name
+            showAnki()
+        }
+    }
+
+    private fun pickAnkiDeck() {
+        val decks = runCatching { anki.decks() }.getOrElse {
+            Toast.makeText(this, "AnkiDroid: ${it.message}", Toast.LENGTH_LONG).show()
+            return
+        }
+        choose("Deck", decks.map { it.id to it.name }, prefs.ankiDeck.takeIf { it >= 0 } ?: Anki.DEFAULT_DECK) { id ->
+            prefs.ankiDeck = id
+            prefs.ankiDeckName = decks.first { it.id == id }.name
+            showAnki()
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        if (requestCode == REQUEST_ANKI) showAnki()
+    }
+
     private fun pickFonts() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
             .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
@@ -806,7 +886,7 @@ class MainActivity : Activity() {
         }
 
         val privacy = right.section("What leaves this device")
-        val rows = listOf(Pos.TOP, Pos.MIDDLE, Pos.BOTTOM).map { pos ->
+        val rows = listOf(Pos.TOP, Pos.MIDDLE, Pos.MIDDLE, Pos.BOTTOM).map { pos ->
             val r = row(pos, minHeight = 60)
             val ic = icon(R.drawable.ic_lock, p.onVar)
             r.addView(ic, LinearLayout.LayoutParams(dpi(22), dpi(22)).apply { marginEnd = dpi(14) })
@@ -830,6 +910,11 @@ class MainActivity : Activity() {
                         Triple(true, "No translations", "Translate hotkey not set")
                     prefs.deeplKey.isNotEmpty() -> Triple(false, "Translate text → DeepL", "Only when you press its hotkey")
                     else -> Triple(false, "Translate text → translator site", host(prefs.translateUrl, "Your URL template"))
+                },
+                if (prefs.dictionaryMode == Prefs.DICT_LOCAL && prefs.ankiModel >= 0) {
+                    Triple(true, "Notes → AnkiDroid", "Word, sentence, screenshot; only when you tap +")
+                } else {
+                    Triple(true, "No Anki notes", "Set up in Lookup")
                 },
             )
             for ((row, line) in rows.zip(lines)) {
@@ -1019,21 +1104,26 @@ class MainActivity : Activity() {
 
     private fun targetName(code: String) = DeepL.TARGETS.firstOrNull { it.first == code }?.let { "${it.second} · $code" } ?: code
 
-    /** The DeepL target language as a list dialog; the D-pad starts on the current choice. */
+    /** The DeepL target language as a list dialog. */
     private fun pickTarget() {
         val current = prefs.deeplTarget
         val codes = DeepL.TARGETS.map { it.first }.let { if (current in it) it else listOf(current) + it }
+        choose("Translate into", codes.map { it to targetName(it) }, current) { prefs.deeplTarget = it }
+    }
+
+    /** A radio list dialog of [options] (value to label); the D-pad starts on [current]. */
+    private fun <T> choose(heading: String, options: List<Pair<T, String>>, current: T, onPick: (T) -> Unit) {
         val dialog = Dialog(this)
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dpi(12), dpi(24), dpi(12), dpi(16))
             background = shape(radiiAll(28), p.cardHigh)
         }
-        content.addView(label(24f, p.on, value = "Translate into").apply { setPadding(dpi(12), 0, dpi(12), 0) })
+        content.addView(label(24f, p.on, value = heading).apply { setPadding(dpi(12), 0, dpi(12), 0) })
         val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         var selected: View? = null
-        for (code in codes) {
-            val on = code == current
+        for ((value, name) in options) {
+            val on = value == current
             val r = LinearLayout(this).apply {
                 gravity = Gravity.CENTER_VERTICAL
                 minimumHeight = dpi(48)
@@ -1042,14 +1132,14 @@ class MainActivity : Activity() {
                 isClickable = true
                 background = tappable(p, radiiAll(24), Color.TRANSPARENT)
                 setOnClickListener {
-                    prefs.deeplTarget = code
                     dialog.dismiss()
+                    onPick(value)
                 }
             }
             r.announceAs("android.widget.RadioButton") { on }
             r.addView(Indicator(this, p, Indicator.Kind.RADIO).apply { checked = on },
                 LinearLayout.LayoutParams(WRAP, WRAP).apply { marginEnd = dpi(16) })
-            r.addView(label(16f, p.on, value = targetName(code)), LinearLayout.LayoutParams(0, WRAP, 1f))
+            r.addView(label(16f, p.on, value = name).apply { textLocale = Locale.JAPANESE }, LinearLayout.LayoutParams(0, WRAP, 1f))
             list.addView(r, LinearLayout.LayoutParams(MATCH, WRAP))
             if (on) selected = r
         }
@@ -1314,6 +1404,7 @@ class MainActivity : Activity() {
     companion object {
         private const val PICK_DATABASE = 1
         private const val PICK_FONT = 2
+        private const val REQUEST_ANKI = 3
         private const val FONT_SAMPLE = "あア 直 漢字"
         private const val KEY_SECTION = "section"
         private const val REPO_URL = "https://github.com/aypro/ocrclip"

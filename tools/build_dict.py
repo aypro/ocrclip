@@ -24,7 +24,7 @@ import sys
 import zipfile
 import zlib
 
-SCHEMA_VERSION = 2  # LocalDictionary.SCHEMA_VERSION
+SCHEMA_VERSION = 3  # LocalDictionary.SCHEMA_VERSION
 
 # Deflate looks back at most 32 KB, so a bigger preset dictionary would be wasted.
 PRESET_SIZE = 32 * 1024
@@ -33,7 +33,9 @@ PRESET_SAMPLES = 4000
 SCHEMA = """
 CREATE TABLE dictionaries (
     id INTEGER PRIMARY KEY, title TEXT NOT NULL UNIQUE, revision TEXT, priority INTEGER NOT NULL,
-    terms INTEGER NOT NULL, meta INTEGER NOT NULL, kanji INTEGER NOT NULL, preset BLOB
+    terms INTEGER NOT NULL, meta INTEGER NOT NULL, kanji INTEGER NOT NULL, preset BLOB,
+    -- The dictionary's styles.css, which OCR Clip scopes and copies into Anki notes like Yomitan does.
+    styles TEXT
 );
 CREATE TABLE terms (
     dict_id INTEGER NOT NULL, term TEXT NOT NULL, reading TEXT NOT NULL, def_tags TEXT NOT NULL,
@@ -115,6 +117,14 @@ def find_index(zf):
         return json.load(f)
 
 
+def find_styles(zf):
+    names = [n for n in zf.namelist() if n == "styles.css" or n.endswith("/styles.css")]
+    if not names:
+        return None
+    with zf.open(min(names, key=len)) as f:
+        return f.read().decode("utf-8", errors="replace")
+
+
 def add_dictionary(db, path, dict_id):
     with zipfile.ZipFile(path) as zf:
         index = find_index(zf)
@@ -162,8 +172,8 @@ def add_dictionary(db, path, dict_id):
                            [(dict_id, e[0], text(e[1]), text(e[3])) for e in bank])
 
         skipped = [n for n in zf.namelist() if re.search(r"\.(png|jpe?g|gif|svg|webp|bmp|avif)$", n, re.I)]
-        db.execute("INSERT INTO dictionaries VALUES (?,?,?,?,?,?,?,?)",
-                   (dict_id, title, str(index.get("revision", "")), dict_id, terms, meta, kanji, zdict))
+        db.execute("INSERT INTO dictionaries VALUES (?,?,?,?,?,?,?,?,?)",
+                   (dict_id, title, str(index.get("revision", "")), dict_id, terms, meta, kanji, zdict, find_styles(zf)))
         parts = [f"{n:,} {what}" for n, what in ((terms, "terms"), (meta, "frequency/pitch"), (kanji, "kanji")) if n]
         note = f" ({len(skipped)} images skipped)" if skipped else ""
         print(f"  {title}: {', '.join(parts) or 'nothing usable'}{note}")
