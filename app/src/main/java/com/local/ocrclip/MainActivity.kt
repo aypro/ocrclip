@@ -478,7 +478,6 @@ class MainActivity : Activity() {
             Triple(Prefs.DICT_OFF, "Just copy", "Clipboard only"),
             Triple(Prefs.DICT_OVERLAY, "Web dictionary", "Opens over the game"),
             Triple(Prefs.DICT_LOCAL, "Yomitan, offline", "Your own dictionaries"),
-            Triple(Prefs.DICT_BROWSER, "Browser", "Opens in your browser app"),
         )
         for ((i, option) in options.withIndex()) {
             val (value, name, sub) = option
@@ -514,7 +513,6 @@ class MainActivity : Activity() {
             val text = when (prefs.dictionaryMode) {
                 Prefs.DICT_LOCAL -> "Tap a character, or use D-pad left and right, to pick the word. 食べなかった finds 食べる."
                 Prefs.DICT_OVERLAY -> "B, Back, the hotkey or a tap outside closes it."
-                Prefs.DICT_BROWSER -> "The game keeps running in the background."
                 else -> ""
             }
             noteText.text = text
@@ -566,7 +564,7 @@ class MainActivity : Activity() {
         refreshers += {
             val mode = prefs.dictionaryMode
             local.visibility = if (mode == Prefs.DICT_LOCAL) View.VISIBLE else View.GONE
-            web.visibility = if (mode == Prefs.DICT_OVERLAY || mode == Prefs.DICT_BROWSER) View.VISIBLE else View.GONE
+            web.visibility = if (mode == Prefs.DICT_OVERLAY) View.VISIBLE else View.GONE
             off.visibility = if (mode == Prefs.DICT_OFF) View.VISIBLE else View.GONE
         }
     }

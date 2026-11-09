@@ -135,6 +135,17 @@ class LocalDictionary(private val context: Context) {
      */
     @Volatile var anki: ((Entry, Definition, Int) -> String?)? = null
 
+    /** Set with [anki]: which of the given terms already have a note. Empty when Anki can't be asked. */
+    @Volatile var ankiExisting: ((Collection<String>) -> Set<String>)? = null
+
+    /** Indices of the shown entries whose term is already in Anki, as a JSON array. */
+    @JavascriptInterface
+    fun ankiExisting(): String {
+        val entries = shown?.entries ?: return "[]"
+        val existing = ankiExisting?.invoke(entries.mapTo(HashSet()) { it.term }) ?: return "[]"
+        return JSONArray(entries.indices.filter { entries[it].term in existing }).toString()
+    }
+
     @JavascriptInterface
     fun addToAnki(entry: Int, definition: Int, offset: Int): String {
         val add = anki ?: return "Anki isn't set up in OCR Clip's settings"

@@ -324,6 +324,12 @@ li { white-space: pre-line; }
     color: #fff; text-align: center; font-size: 22px; line-height: 32px; cursor: pointer; white-space: nowrap; }
 .add.busy { opacity: 0.6; }
 .add.done { background: #2e5d3a; }
+.add.dup { background: #2e5d3a; opacity: 0.75; }
+.add.armed { background: #8a6418; opacity: 1; }
+#notice { position: fixed; left: 0; right: 0; bottom: 16px; margin: 0 auto; width: fit-content; max-width: 90%; padding: 8px 16px;
+    border-radius: 18px; background: #333; color: #fff; font-size: 18px; text-align: center; opacity: 0;
+    transition: opacity 0.2s; pointer-events: none; }
+#notice.on { opacity: 0.95; }
 table { border-collapse: collapse; }
 td, th { border: 1px solid #555; padding: 2px 6px; }
 .message { padding: 16px 0; color: #aaa; }
@@ -353,6 +359,7 @@ let pos = 0, len = 0; // the word picked in the captured text
 // (OcrService calls back()); picking a character starts over.
 let current = {};
 const history = [];
+let renders = 0;
 function render(state) {
     const onText = state.q === undefined;
     const r = JSON.parse(onText ? OCRClip.lookup(text, pos) : OCRClip.lookupTerm(state.q, state.r));
@@ -369,6 +376,30 @@ function render(state) {
     }
     window.scrollTo(0, 0);
     OCRClip.setHistory(history.length);
+    const n = ++renders;
+    // Asking AnkiDroid can take a moment, so the entries show first and get their marks after.
+    setTimeout(() => {
+        if (n !== renders || !results.querySelector('.add')) return;
+        for (const e of JSON.parse(OCRClip.ankiExisting())) markAdded(e);
+    }, 0);
+}
+// A short message over the page: the service's toasts don't show when OCR Clip's notifications are off.
+const notice = document.createElement('div');
+notice.id = 'notice';
+document.body.appendChild(notice);
+function showNotice(message) {
+    notice.textContent = message;
+    notice.classList.add('on');
+    clearTimeout(notice.hide);
+    notice.hide = setTimeout(() => notice.classList.remove('on'), 2500);
+}
+// An entry already in Anki: its + buttons become ✓, and adding another note takes a second tap.
+function markAdded(e) {
+    for (const b of results.querySelectorAll('.add[data-e="' + e + '"]')) {
+        if (b.classList.contains('done')) continue;
+        b.classList.add('dup');
+        b.textContent = '✓';
+    }
 }
 function go(offset) {
     pos = offset;
@@ -386,6 +417,19 @@ results.addEventListener('click', (e) => {
     const add = e.target.closest('.add');
     if (add) {
         if (add.classList.contains('busy') || add.classList.contains('done')) return;
+        if (add.classList.contains('dup') && !add.classList.contains('armed')) {
+            add.classList.add('armed');
+            add.textContent = '+?';
+            showNotice('Already in Anki. Tap again to add another');
+            clearTimeout(add.disarm);
+            add.disarm = setTimeout(() => {
+                add.classList.remove('armed');
+                if (add.classList.contains('dup')) add.textContent = '✓';
+            }, 3000);
+            return;
+        }
+        clearTimeout(add.disarm);
+        add.classList.remove('dup', 'armed');
         add.classList.add('busy');
         add.textContent = '…';
         const offset = current.q === undefined ? pos : -1; // where the word is in the captured text
@@ -395,9 +439,11 @@ results.addEventListener('click', (e) => {
             add.classList.remove('busy');
             if (error) {
                 add.textContent = '+';
+                showNotice(error);
             } else {
                 add.classList.add('done');
                 add.textContent = '✓';
+                markAdded(add.dataset.e);
             }
         }, 30);
         return;

@@ -48,11 +48,16 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("show_toast", true)
         set(v) = sp.edit().putBoolean("show_toast", v).apply()
 
-    /** What happens after a capture: DICT_OFF, DICT_OVERLAY, DICT_LOCAL or DICT_BROWSER. */
+    /**
+     * What happens after a capture: DICT_OFF, DICT_OVERLAY or DICT_LOCAL. Everything stays over the game, so the
+     * browser mode older builds had (and their on/off switch, which opened the browser) now means the overlay.
+     */
     var dictionaryMode: String
-        get() = sp.getString("dictionary_mode", null)
-            // Older builds only had an on/off switch that opened the browser.
-            ?: if (sp.getBoolean("open_dictionary", false)) DICT_BROWSER else DICT_OFF
+        get() = when (val mode = sp.getString("dictionary_mode", null)) {
+            null -> if (sp.getBoolean("open_dictionary", false)) DICT_OVERLAY else DICT_OFF
+            DICT_OFF, DICT_LOCAL -> mode
+            else -> DICT_OVERLAY
+        }
         set(v) = sp.edit().putString("dictionary_mode", v).remove("open_dictionary").apply()
 
     /** `{text}` is replaced with the URL-encoded result; without it the text is appended. */
@@ -147,7 +152,6 @@ class Prefs(context: Context) {
         const val DICT_OFF = "off"
         const val DICT_OVERLAY = "overlay"
         const val DICT_LOCAL = "local"
-        const val DICT_BROWSER = "browser"
         const val DEFAULT_DICTIONARY_URL = "https://jisho.hlorenzi.com/search/{text}"
         const val DEFAULT_TRANSLATE_URL = "https://www.deepl.com/translator#ja/en/{text}"
         const val DEFAULT_DEEPL_TARGET = "EN-US"

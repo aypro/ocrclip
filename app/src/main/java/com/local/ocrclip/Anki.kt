@@ -62,6 +62,27 @@ class Anki(private val context: Context) {
         }
     }
 
+    /**
+     * The values of [field] among [terms] that notes of model [modelId] already have, in any deck: Anki's own duplicate
+     * rule, which its Add screen applies but the provider's inserts don't. Notes are searched in browser syntax.
+     */
+    fun existing(modelId: Long, field: String, terms: Collection<String>): Set<String> {
+        if (terms.isEmpty()) return emptySet()
+        val index = model(modelId)?.fields?.indexOf(field)?.takeIf { it >= 0 } ?: return emptySet()
+        val search = "mid:$modelId (${terms.joinToString(" OR ") { searchQuote(field, it) }})"
+        val found = context.contentResolver.query(Uri.parse("$BASE/notes"), arrayOf("flds"), search, null, null)
+            ?.use { c ->
+                buildSet<String> {
+                    while (c.moveToNext()) c.getString(0).split(FIELD_SEPARATOR).getOrNull(index)?.let { add(it) }
+                }
+            } ?: error("AnkiDroid isn't answering; open it once")
+        return terms.filterTo(HashSet()) { it in found }
+    }
+
+    /** `"field:value"` matching the whole field exactly: Anki reads `*` and `_` as wildcards unless escaped. */
+    private fun searchQuote(field: String, value: String) =
+        "\"" + "$field:$value".replace(Regex("[\\\\\"*_]")) { "\\" + it.value } + "\""
+
     private fun model(c: Cursor) = Model(
         c.getLong(c.getColumnIndexOrThrow("_id")),
         c.getString(c.getColumnIndexOrThrow("name")),

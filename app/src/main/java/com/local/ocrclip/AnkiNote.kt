@@ -37,6 +37,9 @@ object AnkiNote {
 
     fun wantsPicture(fields: List<String>) = fields.any { valueOf(it) == Value.PICTURE }
 
+    /** The field [fields] puts the term in, which the duplicate check searches. */
+    fun termField(fields: List<String>): String = fields.firstOrNull { valueOf(it) == Value.TERM } ?: fields[0]
+
     fun fields(fields: List<String>, s: Source): List<String> = fields.mapIndexed { i, name ->
         when (valueOf(name)) {
             Value.TERM -> s.entry.term

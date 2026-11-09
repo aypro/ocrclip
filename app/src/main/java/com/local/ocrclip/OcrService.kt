@@ -6,11 +6,9 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
 import android.graphics.Bitmap
 import android.graphics.RectF
-import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.view.Display
@@ -210,21 +208,14 @@ class OcrService : AccessibilityService() {
         if (prefs.dictionaryMode == Prefs.DICT_LOCAL) {
             localDictionary.backSteps = 0
             lookupText = text
-            localDictionary.anki = if (prefs.ankiModel >= 0 && anki.installed && anki.permitted) ::addToAnki else null
+            val ankiReady = prefs.ankiModel >= 0 && anki.installed && anki.permitted
+            localDictionary.anki = if (ankiReady) ::addToAnki else null
+            localDictionary.ankiExisting = if (ankiReady) ::existingInAnki else null
             val font = prefs.lookupFont
             lookup.showPage(LookupPage.page(text, font?.let { "${it.name.hashCode()}-${it.lastModified()}" }))
             return
         }
-        val url = Prefs.fillTemplate(prefs.dictionaryUrl, text)
-        if (prefs.dictionaryMode == Prefs.DICT_OVERLAY) {
-            dictionary.show(url)
-            return
-        }
-        try {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        } catch (e: ActivityNotFoundException) {
-            Toast.makeText(this, "No app can open $url", Toast.LENGTH_SHORT).show()
-        }
+        dictionary.show(Prefs.fillTemplate(prefs.dictionaryUrl, text))
     }
 
     /**
@@ -255,6 +246,13 @@ class OcrService : AccessibilityService() {
         }
         error?.let { main.post { Toast.makeText(this, it, Toast.LENGTH_LONG).show() } }
         return error
+    }
+
+    /** Which of [terms] already have a note of the chosen type; empty if AnkiDroid can't be asked. */
+    private fun existingInAnki(terms: Collection<String>): Set<String> = try {
+        anki.model(prefs.ankiModel)?.let { anki.existing(it.id, AnkiNote.termField(it.fields), terms) } ?: emptySet()
+    } catch (e: Exception) {
+        emptySet()
     }
 
     private fun done(message: String?) {
