@@ -519,6 +519,13 @@ class MainActivity : Activity() {
             note.visibility = if (text.isEmpty()) View.GONE else View.VISIBLE
         }
 
+        // Also covers the translate hotkey, so it stays visible with "Just copy".
+        val second = left.section("Second screen")
+        second.card(switchRow(Pos.SINGLE, "Use the second screen", { prefs.secondScreen }) { prefs.secondScreen = it })
+        second.addView(helper("While one is attached (like Retroid's dual-screen add-on), lookups and translations " +
+            "show there and the gamepad stays with the game. Tap to pick a word; ✕ clears the screen until the next " +
+            "capture."))
+
         val font = left.section("Japanese font")
         fontGroup = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         font.addView(fontGroup)

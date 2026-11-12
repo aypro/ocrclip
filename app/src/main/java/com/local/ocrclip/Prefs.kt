@@ -49,8 +49,9 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putBoolean("show_toast", v).apply()
 
     /**
-     * What happens after a capture: DICT_OFF, DICT_OVERLAY or DICT_LOCAL. Everything stays over the game, so the
-     * browser mode older builds had (and their on/off switch, which opened the browser) now means the overlay.
+     * What happens after a capture: DICT_OFF, DICT_OVERLAY or DICT_LOCAL. Everything stays over the game (or on the
+     * [secondScreen]), so the browser mode older builds had (and their on/off switch, which opened the browser) now
+     * means the overlay.
      */
     var dictionaryMode: String
         get() = when (val mode = sp.getString("dictionary_mode", null)) {
@@ -59,6 +60,14 @@ class Prefs(context: Context) {
             else -> DICT_OVERLAY
         }
         set(v) = sp.edit().putString("dictionary_mode", v).remove("open_dictionary").apply()
+
+    /**
+     * Show lookups and translations on a second screen (the Retroid Dual Screen Add-on) while one is attached, instead
+     * of over the game. They never take key focus there, so the gamepad stays with the game.
+     */
+    var secondScreen: Boolean
+        get() = sp.getBoolean("second_screen", false)
+        set(v) = sp.edit().putBoolean("second_screen", v).apply()
 
     /** `{text}` is replaced with the URL-encoded result; without it the text is appended. */
     var dictionaryUrl: String
@@ -158,6 +167,12 @@ class Prefs(context: Context) {
         const val DEFAULT_ANKI_TAGS = "ocrclip"
 
         fun lastScreenshot(context: Context) = File(context.cacheDir, "last_screenshot.jpg")
+
+        /**
+         * The screenshot of the capture the lookup page shows, for Anki. A copy, because on the second screen the page
+         * stays up through later captures (one that finds no text leaves it in place).
+         */
+        fun lookupScreenshot(context: Context) = File(context.cacheDir, "lookup_screenshot.jpg")
 
         /** Loaded fonts, one file each, named after the font. */
         fun fontDir(filesDir: File) = File(filesDir, "fonts")

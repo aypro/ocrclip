@@ -10,7 +10,7 @@ import android.provider.OpenableColumns
 import java.io.FileNotFoundException
 
 /**
- * Hands the last capture's screenshot to AnkiDroid, which copies it into its media folder. Not exported: AnkiDroid
+ * Hands the lookup's screenshot to AnkiDroid, which copies it into its media folder. Not exported: AnkiDroid
  * only gets a read grant for this one URI while a note is added. (FileProvider would mean AndroidX.)
  */
 class ShareProvider : ContentProvider() {
@@ -20,12 +20,12 @@ class ShareProvider : ContentProvider() {
 
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
         if (uri.path != "/$SCREENSHOT" || mode != "r") throw FileNotFoundException(uri.toString())
-        return ParcelFileDescriptor.open(Prefs.lastScreenshot(context!!), ParcelFileDescriptor.MODE_READ_ONLY)
+        return ParcelFileDescriptor.open(Prefs.lookupScreenshot(context!!), ParcelFileDescriptor.MODE_READ_ONLY)
     }
 
     override fun query(uri: Uri, projection: Array<out String>?, selection: String?, args: Array<out String>?, sort: String?): Cursor? {
         if (uri.path != "/$SCREENSHOT") return null
-        val file = Prefs.lastScreenshot(context!!)
+        val file = Prefs.lookupScreenshot(context!!)
         val columns = projection ?: arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE)
         return MatrixCursor(columns).apply {
             addRow(columns.map { if (it == OpenableColumns.SIZE) file.length() else if (it == OpenableColumns.DISPLAY_NAME) SCREENSHOT else null })

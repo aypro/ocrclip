@@ -15,10 +15,10 @@ object LookupPage {
      * the file so the WebView doesn't reuse an old one. lang="ja" picks Japanese glyphs (直, 骨…) from CJK fonts that
      * would otherwise follow the system locale and draw the Chinese forms.
      */
-    fun page(text: String, fontVersion: String? = null) = """<!doctype html>
+    fun page(text: String, fontVersion: String? = null, panel: Boolean = false) = """<!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<style>$CSS${fontVersion?.let { fontCss(it) } ?: ""}</style></head>
-<body><div id="text"></div><div id="results"></div>
+<style>$CSS${fontVersion?.let { fontCss(it) } ?: ""}${if (panel) PANEL_CSS else ""}</style></head>
+<body><div id="text"></div><div id="results"></div>${if (panel) "<button id=\"back\" aria-label=\"Back\">‹</button>" else ""}
 <script>
 const text = ${JSONObject.quote(text)};
 $SCRIPT
@@ -335,8 +335,21 @@ td, th { border: 1px solid #555; padding: 2px 6px; }
 .message { padding: 16px 0; color: #aaa; }
 """
 
+    /**
+     * On the second screen no key reaches the page, so a ‹ chip steps back after following links. It sits left of the
+     * window's ✕ (36 dp, 6 dp from the corner), and the captured text keeps clear of both.
+     */
+    private const val PANEL_CSS = """
+#text { padding-right: 96px; }
+#back { position: fixed; top: 6px; right: 48px; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 50%;
+    background: rgba(34, 34, 34, 0.8); color: #aaa; font-size: 26px; line-height: 34px; display: none; z-index: 1; }
+#back.on { display: block; }
+"""
+
     private const val SCRIPT = """
 const box = document.getElementById('text');
+const backChip = document.getElementById('back'); // second screen only
+if (backChip) backChip.onclick = () => back();
 const results = document.getElementById('results');
 const chars = []; // [UTF-16 offset, span], so offsets match Kotlin's String indices
 for (let i = 0; i < text.length;) {
@@ -356,7 +369,7 @@ for (let i = 0; i < text.length;) {
 }
 let pos = 0, len = 0; // the word picked in the captured text
 // What the results show: {} for the captured-text word, {q, r} for a followed link. The history is what B returns to
-// (OcrService calls back()); picking a character starts over.
+// (OcrService calls back()), or the ‹ chip on the second screen; picking a character starts over.
 let current = {};
 const history = [];
 let renders = 0;
@@ -376,6 +389,7 @@ function render(state) {
     }
     window.scrollTo(0, 0);
     OCRClip.setHistory(history.length);
+    if (backChip) backChip.classList.toggle('on', history.length > 0);
     const n = ++renders;
     // Asking AnkiDroid can take a moment, so the entries show first and get their marks after.
     setTimeout(() => {
