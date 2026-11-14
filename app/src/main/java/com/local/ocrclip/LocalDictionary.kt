@@ -179,7 +179,7 @@ class LocalDictionary(private val context: Context) {
                 error?.let { "The dictionary database couldn't be opened: $it" }
                     ?: "No dictionary database loaded. Build one on a PC with tools/build_dict.py, then load it in " +
                     "OCR Clip's settings."
-            ) else LookupPage.results(result, anki = anki != null))
+            ) else LookupPage.results(result, anki = anki != null, styles = styles))
         } catch (e: Exception) {
             json.put("length", 0).put("html", LookupPage.message("Lookup failed: ${e.message}"))
         }

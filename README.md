@@ -59,6 +59,14 @@ Reading Yomitan dictionary zips takes a long time on a handheld, so you turn the
 3. Copy `dict.db` to the device (USB, or `adb push dict.db /sdcard/Download/`).
 4. In the app, open **Lookup**, choose **Yomitan, offline**, then press **Load…** and pick the file.
 
+Three optional scripts rework dictionaries before building. `tools/strip_jitendex.py` removes Jitendex's example sentences and its JMdict | Tatoeba links, and `tools/strip_shinwaei.py` removes the `[ローマ字](romaji)` tags from 新和英. `tools/split_jmnedict.py` is for the JMnedict build that lists all of a name's readings as its definition: readings a frequency dictionary (BCCWJ) knows move to the front of the list, highlighted, and the most common one becomes the entry's reading, so the list shows under the name's normal headword with its frequency. Run them again on each new release of those dictionaries:
+
+```sh
+python tools/strip_jitendex.py jitendex-yomitan.zip jitendex-no-examples.zip
+python tools/strip_shinwaei.py 新和英.zip 新和英-no-romaji.zip
+python tools/split_jmnedict.py JMnedict.zip BCCWJ.zip JMnedict-common-readings.zip
+```
+
 The app lists the dictionaries in the database. Untick one to stop using it, or reorder them with ▲▼. These settings are kept by dictionary name, so rebuilding the database on the PC (to add a dictionary, say) keeps them. Images inside dictionaries aren't included; their description is shown instead. Databases from before v0.4 still work, but Anki notes made with them come without the dictionaries' own styles; rebuild to get them.
 
 The deinflection rules in `app/src/main/assets/japanese-transforms.json` come from Yomitan. To update them:

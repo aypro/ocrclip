@@ -33,8 +33,11 @@ body { font-family: OCRClipJa, sans-serif; }
 
     fun message(text: String) = "<div class=\"message\">${esc(text)}</div>"
 
-    /** [anki] adds a + button to each definition, which the page script sends to `OCRClip.addToAnki`. */
-    fun results(result: LocalDictionary.Result, anki: Boolean = false): String {
+    /**
+     * [anki] adds a + button to each definition, which the page script sends to `OCRClip.addToAnki`. Each dictionary's
+     * [styles] (its styles.css) applies to its own entries, as in Yomitan.
+     */
+    fun results(result: LocalDictionary.Result, anki: Boolean = false, styles: Map<String, String> = emptyMap()): String {
         result.message?.let { return message(it) }
         if (result.entries.isEmpty() && result.kanji.isEmpty()) return message("No entries")
         return buildString {
@@ -55,7 +58,7 @@ body { font-family: OCRClipJa, sans-serif; }
                 for ((di, d) in e.definitions.withIndex()) {
                     if (d.dictionary != dictionary) {
                         if (dictionary != null) append("</ol>")
-                        append("<div class=\"dict\">${esc(d.dictionary)}</div><ol>")
+                        append("<div class=\"dict\">${esc(d.dictionary)}</div><ol data-dictionary=\"${esc(d.dictionary)}\">")
                         dictionary = d.dictionary
                     }
                     append("<li>")
@@ -74,6 +77,9 @@ body { font-family: OCRClipJa, sans-serif; }
                 if (k.kunyomi.isNotBlank()) append("<div class=\"readings\">${esc(k.kunyomi)}</div>")
                 append("<ol>${k.meanings.joinToString("") { "<li>${esc(it)}</li>" }}</ol></div>")
             }
+            val css = result.entries.flatMap { e -> e.definitions.map { it.dictionary } }.distinct()
+                .mapNotNull { title -> styles[title]?.let { scopeCss(it, title, ".entry") } }
+            if (css.isNotEmpty()) append("<style>${css.joinToString("")}</style>")
         }
     }
 
@@ -108,12 +114,12 @@ body { font-family: OCRClipJa, sans-serif; }
     }
 
     /**
-     * Prefixes every selector of a dictionary's styles.css with `.yomitan-glossary [data-dictionary="title"]`, as
-     * Yomitan does for Anki, so its rules reach only its own entries. Rules inside @media and @supports are scoped
-     * too; other at-rules are copied as they are.
+     * Prefixes every selector of a dictionary's styles.css with `[root] [data-dictionary="title"]`, as Yomitan does
+     * for Anki, so its rules reach only its own entries. Rules inside @media and @supports are scoped too; other
+     * at-rules are copied as they are.
      */
-    fun scopeCss(css: String, title: String): String {
-        val prefix = ".yomitan-glossary [data-dictionary=\"${title.replace("\\", "\\\\").replace("\"", "\\\"")}\"]"
+    fun scopeCss(css: String, title: String, root: String = ".yomitan-glossary"): String {
+        val prefix = "$root [data-dictionary=\"${title.replace("\\", "\\\\").replace("\"", "\\\"")}\"]"
         // No "<" can end the <style> element early; CSS doesn't need it outside strings.
         return scope(css.replace(Regex("""/\*[\s\S]*?\*/"""), "").replace("<", ""), prefix)
     }
@@ -181,8 +187,9 @@ body { font-family: OCRClipJa, sans-serif; }
     }
 
     /**
-     * Yomitan structured content, limited to its own tag set so a dictionary can't inject scripts or real links. For
-     * [anki], elements also get Yomitan's gloss-sc-* class and data-sc-* attributes, which dictionary styles select on.
+     * Yomitan structured content, limited to its own tag set so a dictionary can't inject scripts or real links.
+     * Elements get Yomitan's gloss-sc-* class and data-sc-* attributes, which dictionary styles select on; [anki]
+     * only changes how links are written.
      */
     private fun content(node: Any?, anki: Boolean): String = when (node) {
         is String -> esc(node)
@@ -199,16 +206,13 @@ body { font-family: OCRClipJa, sans-serif; }
             "a" -> return link(o, anki)
             !in TAGS -> return content(o.opt("content"), anki)
         }
-        val attrs = StringBuilder()
-        if (anki) {
-            attrs.append(" class=\"gloss-sc-$tag\"")
-            o.optJSONObject("data")?.let { data ->
-                for (key in data.keys()) {
-                    if (!key.all { it.isLetterOrDigit() || it == '-' }) continue
-                    // Yomitan sets element.dataset["sc" + Key], so "Contents" and "contents" both become data-sc-contents.
-                    val name = kebab("sc" + key.replaceFirstChar { it.uppercaseChar() })
-                    attrs.append(" data-$name=\"${esc(data.opt(key).toString())}\"")
-                }
+        val attrs = StringBuilder(" class=\"gloss-sc-$tag\"")
+        o.optJSONObject("data")?.let { data ->
+            for (key in data.keys()) {
+                if (!key.all { it.isLetterOrDigit() || it == '-' }) continue
+                // Yomitan sets element.dataset["sc" + Key], so "Contents" and "contents" both become data-sc-contents.
+                val name = kebab("sc" + key.replaceFirstChar { it.uppercaseChar() })
+                attrs.append(" data-$name=\"${esc(data.opt(key).toString())}\"")
             }
         }
         o.optJSONObject("style")?.let { style(it) }?.takeIf { it.isNotEmpty() }?.let { attrs.append(" style=\"${esc(it)}\"") }
@@ -308,6 +312,7 @@ rt { font-size: 14px; color: #aaa; }
 .dict { margin-top: 6px; color: #8c8; font-size: 14px; }
 ol, ul { margin: 2px 0; padding-left: 24px; }
 li { white-space: pre-line; }
+.entry > ol > li { clear: right; } /* a one-line definition is shorter than its + button */
 .tag { display: inline-block; background: #444; border-radius: 3px; padding: 0 5px; margin-right: 4px; font-size: 13px; }
 .freq { font-size: 14px; background: #333; border-radius: 3px; padding: 0 6px; }
 .freq b { font-weight: normal; color: #aaa; margin-right: 4px; }

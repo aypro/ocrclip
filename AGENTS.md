@@ -25,7 +25,7 @@ Single module, `app/`, package `com.local.ocrclip`. Plain Activities and Views, 
 | `RegionActivity.kt` | Drag a capture region over the last screenshot, stored as fractions of the screen. |
 | `ServiceEnabler.kt` | Re-adds the service to `enabled_accessibility_services` using `WRITE_SECURE_SETTINGS`. `BootReceiver` runs on boot or update and re-checks at 30 s, 2 min and 5 min, because Retroid firmware resets the list on boot. |
 
-`tools/` holds the PC-side scripts (Python 3, standard library only): `build_dict.py` (Yomitan zips → `dict.db`) and `export_yomitan_transforms.py` (Yomitan rules → `japanese-transforms.json`).
+`tools/` holds the PC-side scripts (Python 3, standard library only): `build_dict.py` (Yomitan zips → `dict.db`), `strip_jitendex.py` and `strip_shinwaei.py` (zip → trimmed zip: Jitendex without examples and attribution links, 新和英 without romaji tags), `split_jmnedict.py` (JMnedict + a frequency zip → JMnedict with common readings listed first, highlighted, and the top one set as the entry's reading) and `export_yomitan_transforms.py` (Yomitan rules → `japanese-transforms.json`).
 
 The project is GPL-3.0-or-later (`LICENSE`) because it includes Yomitan's deinflection rules.
 
