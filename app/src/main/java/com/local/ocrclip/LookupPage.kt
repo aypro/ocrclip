@@ -299,7 +299,8 @@ body { font-family: OCRClipJa, sans-serif; }
 
     private const val CSS = """
 body { margin: 0; background: #000; color: #eee; font: 18px/1.5 sans-serif; }
-#text { position: sticky; top: 0; background: #000; padding: 8px 12px; font-size: 26px; line-height: 1.7;
+/* z-index: dictionary styles make stacking contexts (Jitendex clip-path icons) that would paint over the sticky text. */
+#text { position: sticky; top: 0; z-index: 1; background: #000; padding: 8px 12px; font-size: 26px; line-height: 1.7;
     border-bottom: 1px solid #444; max-height: 35vh; overflow-y: auto; }
 #text span.match { background: #2d4f6c; }
 #text span.cursor { box-shadow: inset 0 -3px #6cb4ff; }
@@ -331,7 +332,7 @@ li { white-space: pre-line; }
 .add.done { background: #2e5d3a; }
 .add.dup { background: #2e5d3a; opacity: 0.75; }
 .add.armed { background: #8a6418; opacity: 1; }
-#notice { position: fixed; left: 0; right: 0; bottom: 16px; margin: 0 auto; width: fit-content; max-width: 90%; padding: 8px 16px;
+#notice { position: fixed; z-index: 2; left: 0; right: 0; bottom: 16px; margin: 0 auto; width: fit-content; max-width: 90%; padding: 8px 16px;
     border-radius: 18px; background: #333; color: #fff; font-size: 18px; text-align: center; opacity: 0;
     transition: opacity 0.2s; pointer-events: none; }
 #notice.on { opacity: 0.95; }
@@ -347,7 +348,7 @@ td, th { border: 1px solid #555; padding: 2px 6px; }
     private const val PANEL_CSS = """
 #text { padding-right: 96px; }
 #back { position: fixed; top: 6px; right: 48px; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 50%;
-    background: rgba(34, 34, 34, 0.8); color: #aaa; font-size: 26px; line-height: 34px; display: none; z-index: 1; }
+    background: rgba(34, 34, 34, 0.8); color: #aaa; font-size: 26px; line-height: 34px; display: none; z-index: 2; }
 #back.on { display: block; }
 """
 
