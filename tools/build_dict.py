@@ -199,6 +199,9 @@ def main():
             if add_dictionary(db, path, dict_id):
                 dict_id += 1
         except (zipfile.BadZipFile, json.JSONDecodeError, IndexError, KeyError, TypeError) as e:
+            # Rows it added before failing would otherwise pass to the next dictionary, which gets the same id.
+            for table in ("terms", "term_meta", "kanji", "tags"):
+                db.execute(f"DELETE FROM {table} WHERE dict_id = ?", (dict_id,))
             print(f"  skipped {path}: {e}")
     if dict_id == 1:
         db.close()

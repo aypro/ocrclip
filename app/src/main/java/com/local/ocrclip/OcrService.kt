@@ -128,6 +128,15 @@ class OcrService : AccessibilityService() {
         if (key == "second_screen") screen()
     }
 
+    /**
+     * The key that closed an overlay, swallowed until it's released: its repeats and key-up would otherwise reach the
+     * game, where a held B counts as a press.
+     */
+    private var closingKey = KeyEvent.KEYCODE_UNKNOWN
+
+    /** Failures show here, not in a toast: Android drops an app's toasts while its notifications are off. */
+    private lateinit var notice: Notice
+
     /** Bumped per DeepL request, so a late answer for a closed or replaced popup is dropped. */
     private var translation = 0
 
@@ -149,6 +158,7 @@ class OcrService : AccessibilityService() {
         localDictionary = LocalDictionary(this)
         game = Screen(null)
         anki = Anki(this)
+        notice = Notice(this)
         displays = getSystemService(DisplayManager::class.java)
         displays.registerDisplayListener(displayListener, main)
         prefs.sp.registerOnSharedPreferenceChangeListener(prefsListener)
@@ -167,6 +177,7 @@ class OcrService : AccessibilityService() {
         if (::displays.isInitialized) displays.unregisterDisplayListener(displayListener)
         if (::prefs.isInitialized) prefs.sp.unregisterOnSharedPreferenceChangeListener(prefsListener)
         if (::game.isInitialized) game.destroy()
+        if (::notice.isInitialized) notice.hide()
         dropPanel()
         if (::localDictionary.isInitialized) localDictionary.close()
         super.onDestroy()
@@ -180,6 +191,14 @@ class OcrService : AccessibilityService() {
         if (bindingHotkey) return false
         val code = event.keyCode
         if (code == KeyEvent.KEYCODE_UNKNOWN) return false
+        if (code == closingKey) {
+            val pressedAgain = event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0 // its key-up got lost
+            closingKey = KeyEvent.KEYCODE_UNKNOWN
+            if (!pressedAgain) {
+                if (event.action == KeyEvent.ACTION_DOWN) closingKey = code
+                return true
+            }
+        }
         val action = when (code) {
             prefs.hotkey -> Action.LOOKUP
             prefs.translateHotkey -> Action.TRANSLATE
@@ -188,9 +207,14 @@ class OcrService : AccessibilityService() {
         openOverlay?.let { open ->
             val closes = action != null || code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_BUTTON_B
             if (!closes) return false
-            if (event.action == KeyEvent.ACTION_DOWN) {
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
                 // After following links in the lookup page, B and Back step back through them before closing it.
-                if (open === game.lookup && action == null && localDictionary.backSteps > 0) game.lookup.run("back()") else open.hide()
+                if (open === game.lookup && action == null && localDictionary.backSteps > 0) {
+                    game.lookup.run("back()")
+                } else {
+                    open.hide()
+                    closingKey = code
+                }
             }
             return true
         }
@@ -207,6 +231,11 @@ class OcrService : AccessibilityService() {
         }
         if (busy) return
         busy = true
+        // A notice still up from the last failure would be read as text; give its window a moment to go.
+        if (notice.hide()) main.postDelayed({ shoot(action) }, NOTICE_CLEAR_MS) else shoot(action)
+    }
+
+    private fun shoot(action: Action) {
         takeScreenshot(Display.DEFAULT_DISPLAY, worker, object : TakeScreenshotCallback {
             override fun onSuccess(shot: ScreenshotResult) {
                 val buffer = shot.hardwareBuffer
@@ -214,7 +243,7 @@ class OcrService : AccessibilityService() {
                     ?.copy(Bitmap.Config.ARGB_8888, false)
                 buffer.close()
                 if (bitmap == null) {
-                    done("Screenshot failed")
+                    fail("Screenshot failed")
                     return
                 }
                 // For the region picker and Anki notes. Saved first, so it's in place when the lookup shows.
@@ -222,12 +251,12 @@ class OcrService : AccessibilityService() {
                 try {
                     recognize(crop(bitmap, prefs.region), action)
                 } catch (e: Exception) {
-                    done("OCR failed: ${e.message}")
+                    fail("OCR failed: ${e.message}")
                 }
             }
 
             override fun onFailure(errorCode: Int) {
-                done(
+                fail(
                     if (errorCode == ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT) "Too fast, try again"
                     else "Screenshot failed ($errorCode)"
                 )
@@ -240,18 +269,18 @@ class OcrService : AccessibilityService() {
             network.execute {
                 runCatching { LensOcr.recognize(image) }
                     .onSuccess { lines -> main.post { deliver(format(lines, prefs.keepNewlines), action) } }
-                    .onFailure { done("Google Lens failed: ${it.message}") }
+                    .onFailure { fail("Google Lens failed: ${it.message}") }
             }
         } else {
             recognizer.process(InputImage.fromBitmap(image, 0))
                 .addOnSuccessListener { text -> deliver(format(mlKitLines(text), prefs.keepNewlines), action) }
-                .addOnFailureListener { done("OCR failed: ${it.message}") }
+                .addOnFailureListener { fail("OCR failed: ${it.message}") }
         }
     }
 
     private fun deliver(text: String, action: Action) {
         if (text.isEmpty()) {
-            done("No text found")
+            fail("No text found")
             return
         }
         if (prefs.copyToClipboard) {
@@ -290,7 +319,7 @@ class OcrService : AccessibilityService() {
                 if (request != translation || !popup.isShowing) return@post
                 result.onSuccess { popup.setTranslation(it) }.onFailure {
                     popup.hide()
-                    Toast.makeText(this, "DeepL failed: ${it.message}", Toast.LENGTH_SHORT).show()
+                    showNotice("DeepL failed: ${it.message}")
                     translator.show(Prefs.fillTemplate(prefs.translateUrl, text))
                 }
             }
@@ -384,12 +413,24 @@ class OcrService : AccessibilityService() {
         emptySet()
     }
 
-    private fun done(message: String?) {
+    /** Ends a capture; [toast] is the text read, when the user wants it shown. */
+    private fun done(toast: String?) {
         main.post {
             busy = false
-            if (message != null) Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+            if (toast != null) Toast.makeText(this, toast, Toast.LENGTH_SHORT).show()
         }
     }
+
+    /** Ends a capture that failed. */
+    private fun fail(message: String) {
+        main.post {
+            busy = false
+            showNotice(message)
+        }
+    }
+
+    // Kept off the capture region like the DeepL popup, so it doesn't sit on the text being read.
+    private fun showNotice(message: String) = notice.show(message, atTop = (prefs.region?.centerY() ?: 1f) > 0.5f)
 
     private fun saveLastScreenshot(bitmap: Bitmap) {
         val file = Prefs.lastScreenshot(this)
@@ -402,6 +443,10 @@ class OcrService : AccessibilityService() {
 
     companion object {
         const val ACTION_CAPTURE = "com.local.ocrclip.CAPTURE"
+        private const val NOTICE_CLEAR_MS = 100L
+
+        /** The smallest side, in pixels, of a region worth reading. */
+        const val MIN_CROP = 32
 
         /** Set by MainActivity while it waits for a key press, so the old hotkey isn't swallowed. */
         @Volatile
@@ -417,8 +462,8 @@ class OcrService : AccessibilityService() {
             val top = (region.top * h).toInt().coerceIn(0, h - 1)
             val width = ((region.right * w).toInt() - left).coerceIn(1, w - left)
             val height = ((region.bottom * h).toInt() - top).coerceIn(1, h - top)
-            // ML Kit rejects tiny images; fall back to the full screen.
-            if (width < 32 || height < 32) return bitmap
+            // ML Kit rejects tiny images; fall back to the full screen. (The region picker doesn't save one this small.)
+            if (width < MIN_CROP || height < MIN_CROP) return bitmap
             return Bitmap.createBitmap(bitmap, left, top, width, height)
         }
 

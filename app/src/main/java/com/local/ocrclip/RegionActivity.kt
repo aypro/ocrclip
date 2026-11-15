@@ -73,6 +73,9 @@ class RegionView(context: Context, private val bitmap: Bitmap, initial: RectF?) 
     private val dst = RectF()
     private var startX = 0f
     private var startY = 0f
+
+    /** The selection before the current drag, which a drag too small to OCR (a stray tap) puts back. */
+    private var before: RectF? = initial
     private val dim = Paint().apply { color = 0x99000000.toInt() }
     private val border = Paint().apply {
         color = Color.CYAN
@@ -108,9 +111,17 @@ class RegionView(context: Context, private val bitmap: Bitmap, initial: RectF?) 
             MotionEvent.ACTION_DOWN -> {
                 startX = x
                 startY = y
+                before = selection
             }
             MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP -> {
-                selection = RectF(min(startX, x), min(startY, y), max(startX, x), max(startY, y))
+                val drawn = RectF(min(startX, x), min(startY, y), max(startX, x), max(startY, y))
+                val tooSmall = drawn.width() * bitmap.width < OcrService.MIN_CROP ||
+                    drawn.height() * bitmap.height < OcrService.MIN_CROP
+                selection = if (event.actionMasked == MotionEvent.ACTION_UP && tooSmall) before else drawn
+                invalidate()
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                selection = before
                 invalidate()
             }
         }
