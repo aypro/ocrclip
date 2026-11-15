@@ -20,6 +20,9 @@ class LocalDictionary(private val context: Context) {
         val id: Int, val title: String, val terms: Int, val meta: Int, val kanji: Int, val enabled: Boolean,
     )
 
+    /** How adding an Anki note went: [error] if it wasn't added, [notice] for a remark on one that was. */
+    class Added(val error: String? = null, val notice: String? = null)
+
     class Tag(val name: String, val category: String, val notes: String)
 
     class Definition(val dictionary: String, val tags: List<Tag>, val glossary: JSONArray)
@@ -133,7 +136,7 @@ class LocalDictionary(private val context: Context) {
      * Set by the service while Anki is set up, so the page shows + buttons: adds a note for one definition of an entry,
      * with the offset of the word in the captured text (-1 for a followed link). Returns an error message or null.
      */
-    @Volatile var anki: ((Entry, Definition, Int) -> String?)? = null
+    @Volatile var anki: ((Entry, Definition, Int) -> Added)? = null
 
     /** Set with [anki]: which of the given terms already have a note. Empty when Anki can't be asked. */
     @Volatile var ankiExisting: ((Collection<String>) -> Set<String>)? = null
@@ -146,16 +149,22 @@ class LocalDictionary(private val context: Context) {
         return JSONArray(entries.indices.filter { entries[it].term in existing }).toString()
     }
 
+    /** Adds a note and returns JSON: `error` if it wasn't added, or `notice` for something to say about one that was. */
     @JavascriptInterface
     fun addToAnki(entry: Int, definition: Int, offset: Int): String {
-        val add = anki ?: return "Anki isn't set up in OCR Clip's settings"
         val e = shown?.entries?.getOrNull(entry)
-        val d = e?.definitions?.getOrNull(definition) ?: return "That entry is gone, look it up again"
-        return try {
-            add(e, d, offset) ?: ""
-        } catch (x: Exception) {
-            "Anki: ${x.message}"
+        val d = e?.definitions?.getOrNull(definition)
+        val add = anki
+        val added = when {
+            add == null -> Added("Anki isn't set up in OCR Clip's settings")
+            e == null || d == null -> Added("That entry is gone, look it up again")
+            else -> try {
+                add(e, d, offset)
+            } catch (x: Exception) {
+                Added("Anki: ${x.message}")
+            }
         }
+        return JSONObject().putOpt("error", added.error).putOpt("notice", added.notice).toString()
     }
 
     @JavascriptInterface

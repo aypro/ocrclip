@@ -3,8 +3,8 @@ package com.local.ocrclip
 /**
  * Field values for an Anki note from one looked-up entry, matched by field name the way Yomitan's Lapis setup fills
  * them: Expression, ExpressionFurigana, ExpressionReading, MainDefinition (the definition picked), Glossary (all of
- * the entry's), Sentence, Picture, PitchPosition, Frequency and FreqSort. A few common names from other note types
- * (Word, Reading, Meaning, Front/Back…) map too; other fields stay empty.
+ * the entry's), Sentence, Picture, ExpressionAudio, PitchPosition, Frequency and FreqSort. A few common names from
+ * other note types (Word, Reading, Meaning, Front/Back…) map too; other fields stay empty.
  */
 object AnkiNote {
     class Source(
@@ -15,10 +15,14 @@ object AnkiNote {
         val offset: Int,
         /** Stored media file name of the screenshot, or null without one. */
         val picture: String?,
+        /** Stored media file name of the word's recording, or null without one. */
+        val audio: String?,
         val styles: Map<String, String>,
     )
 
-    private enum class Value { TERM, READING, FURIGANA, DEFINITION, GLOSSARY, SENTENCE, PICTURE, PITCH, FREQUENCY, FREQ_SORT }
+    private enum class Value {
+        TERM, READING, FURIGANA, DEFINITION, GLOSSARY, SENTENCE, PICTURE, AUDIO, PITCH, FREQUENCY, FREQ_SORT
+    }
 
     private val names = mapOf(
         Value.TERM to setOf("expression", "word", "term", "vocab", "vocabulary", "front", "key"),
@@ -28,6 +32,7 @@ object AnkiNote {
         Value.GLOSSARY to setOf("glossary", "definitions"),
         Value.SENTENCE to setOf("sentence"),
         Value.PICTURE to setOf("picture", "image", "screenshot"),
+        Value.AUDIO to setOf("expressionaudio", "audio", "wordaudio", "vocabaudio", "termaudio"),
         Value.PITCH to setOf("pitchposition", "pitch", "pitchaccent"),
         Value.FREQUENCY to setOf("frequency", "frequencies"),
         Value.FREQ_SORT to setOf("freqsort", "frequencysort"),
@@ -36,6 +41,8 @@ object AnkiNote {
     private fun valueOf(field: String) = names[field.lowercase().filter { it in 'a'..'z' }]
 
     fun wantsPicture(fields: List<String>) = fields.any { valueOf(it) == Value.PICTURE }
+
+    fun wantsAudio(fields: List<String>) = fields.any { valueOf(it) == Value.AUDIO }
 
     /** The field [fields] puts the term in, which the duplicate check searches. */
     fun termField(fields: List<String>): String = fields.firstOrNull { valueOf(it) == Value.TERM } ?: fields[0]
@@ -49,6 +56,7 @@ object AnkiNote {
             Value.GLOSSARY -> LookupPage.ankiGlossary(s.entry.definitions, s.styles)
             Value.SENTENCE -> sentence(s)
             Value.PICTURE -> s.picture?.let { "<img src=\"${esc(it)}\">" } ?: ""
+            Value.AUDIO -> s.audio?.let { "[sound:${esc(it)}]" } ?: ""
             Value.PITCH -> s.entry.pitches.flatMap { it.positions }.distinct().let {
                 if (it.size <= 1) it.joinToString("") else it.joinToString("", "<ol>", "</ol>") { p -> "<li>${esc(p)}</li>" }
             }
@@ -112,7 +120,7 @@ object AnkiNote {
 
     private fun isKana(ch: Char) = ch in 'ぁ'..'ゖ' || ch in 'ァ'..'ヺ' || ch == 'ー' || ch == 'ゝ' || ch == 'ゞ'
 
-    private fun hiragana(s: String) = buildString { for (ch in s) append(if (ch in 'ァ'..'ヶ') ch - 0x60 else ch) }
+    fun hiragana(s: String) = buildString { for (ch in s) append(if (ch in 'ァ'..'ヶ') ch - 0x60 else ch) }
 
     private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
 }

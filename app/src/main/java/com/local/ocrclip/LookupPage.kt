@@ -455,15 +455,16 @@ results.addEventListener('click', (e) => {
         const offset = current.q === undefined ? pos : -1; // where the word is in the captured text
         // Let the dots paint before the bridge call holds up the page.
         setTimeout(() => {
-            const error = OCRClip.addToAnki(+add.dataset.e, +add.dataset.d, offset);
+            const added = JSON.parse(OCRClip.addToAnki(+add.dataset.e, +add.dataset.d, offset));
             add.classList.remove('busy');
-            if (error) {
+            if (added.error) {
                 add.textContent = '+';
-                showNotice(error);
+                showNotice(added.error);
             } else {
                 add.classList.add('done');
                 add.textContent = '✓';
                 markAdded(add.dataset.e);
+                if (added.notice) showNotice(added.notice);
             }
         }, 30);
         return;

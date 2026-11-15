@@ -42,7 +42,7 @@ class Anki(private val context: Context) {
                 put("preferred_name", name.replace(' ', '_'))
             }
             val stored = context.contentResolver.insert(Uri.parse("$BASE/media"), values)
-                ?: error("AnkiDroid couldn't store the screenshot")
+                ?: error("AnkiDroid couldn't store the file")
             return File(stored.path!!).name
         } finally {
             context.revokeUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)

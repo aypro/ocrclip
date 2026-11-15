@@ -377,10 +377,14 @@ class OcrService : AccessibilityService() {
     private fun lookupFile(path: String): File? = if (path == "/font") prefs.lookupFont else null
 
     /**
-     * Adds a note for [definition] of [entry] to AnkiDroid, with the screenshot of the capture the lookup shows.
-     * Runs on the lookup page's bridge thread. Returns an error or null.
+     * Adds a note for [definition] of [entry] to AnkiDroid, with the screenshot of the capture the lookup shows,
+     * and the word's recording when the note type has a field for it and an audio database is loaded. Runs on the
+     * lookup page's bridge thread.
      */
-    private fun addToAnki(entry: LocalDictionary.Entry, definition: LocalDictionary.Definition, offset: Int): String? {
+    private fun addToAnki(
+        entry: LocalDictionary.Entry, definition: LocalDictionary.Definition, offset: Int,
+    ): LocalDictionary.Added {
+        var notice: String? = null
         val error = try {
             val model = anki.model(prefs.ankiModel)
             if (model == null) {
@@ -390,8 +394,12 @@ class OcrService : AccessibilityService() {
                 val picture = if (AnkiNote.wantsPicture(model.fields) && shot.exists()) {
                     anki.addMedia(ShareProvider.screenshot, "ocrclip_${entry.term}")
                 } else null
+                val audio = if (AnkiNote.wantsAudio(model.fields) && LocalAudio.loaded(this)) {
+                    // A note without its recording is still worth having, so nothing here stops it.
+                    runCatching { addAudio(entry) }.getOrNull().also { if (it == null) notice = "No audio for this word" }
+                } else null
                 val fields = AnkiNote.fields(model.fields, AnkiNote.Source(
-                    entry, definition, lookupText, offset, picture, localDictionary.styles,
+                    entry, definition, lookupText, offset, picture, audio, localDictionary.styles,
                 ))
                 val deck = prefs.ankiDeck.takeIf { it >= 0 } ?: Anki.DEFAULT_DECK
                 anki.addNote(model.id, deck, fields, prefs.ankiTags.split(' ').filter { it.isNotBlank() })
@@ -403,7 +411,15 @@ class OcrService : AccessibilityService() {
             "Anki: ${e.message}"
         }
         error?.let { main.post { Toast.makeText(this, it, Toast.LENGTH_LONG).show() } }
-        return error
+        return LocalDictionary.Added(error, notice.takeIf { error == null })
+    }
+
+    /** Gives AnkiDroid the recording of [entry]'s word and returns its stored file name, or null without one. */
+    private fun addAudio(entry: LocalDictionary.Entry): String? {
+        val clip = LocalAudio.find(this, entry.term, entry.reading) ?: return null
+        Prefs.lookupAudio(this, clip.extension).writeBytes(clip.bytes)
+        val name = if (entry.reading.isEmpty() || entry.reading == entry.term) entry.term else "${entry.term}_${entry.reading}"
+        return anki.addMedia(ShareProvider.audio(clip.extension), "ocrclip_$name")
     }
 
     /** Which of [terms] already have a note of the chosen type; empty if AnkiDroid can't be asked. */

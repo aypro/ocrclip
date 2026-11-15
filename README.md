@@ -15,7 +15,8 @@ It runs as an accessibility service: hotkey → screenshot → optional crop to 
   - **Just copy**: only copies the text.
   - **Dictionary overlay**: shows a WebView over the game. B, Back, the hotkey or tapping outside it closes it.
   - **Yomitan dictionaries (offline)**: looks the text up in your own [Yomitan](https://github.com/yomidevs/yomitan) dictionaries, over the game. Inflected words are found with Yomitan's deinflection rules (食べなかった → 食べる). Tap a character to look up the word starting there, or use D-pad right/left to move through the sentence. Cross-reference links in the entries (⇒ 見る) look that word up in place; B goes back. Under **Japanese font** you can load your own TTF/OTF/TTC fonts (UD Digi Kyokasho, Klee One…) for the kana and kanji; the app keeps a copy of each, so you pick between them without the original files. See [Offline Yomitan dictionaries](#offline-yomitan-dictionaries).
-    - **Anki cards**: with [AnkiDroid](https://github.com/ankidroid/Anki-Android) installed, every definition gets a **+** button that adds a note with the word, that definition, the captured sentence (the word in bold) and the screenshot. Set it up under **Lookup → Anki**: allow access, then pick the note type and the deck. Fields are filled by name the way Yomitan fills [Lapis](https://github.com/donkuri/lapis): Expression, ExpressionFurigana, ExpressionReading, MainDefinition, Glossary (all of the entry's definitions), Sentence, Picture, PitchPosition, Frequency and FreqSort. Basic's Front/Back and names like Word, Reading or Meaning work too. Definitions keep Yomitan's markup and, with a database built since v0.4, each dictionary's styles, so they look like the cards Yomitan makes.
+    - **Anki cards**: with [AnkiDroid](https://github.com/ankidroid/Anki-Android) installed, every definition gets a **+** button that adds a note with the word, that definition, the captured sentence (the word in bold) and the screenshot. Set it up under **Lookup → Anki**: allow access, then pick the note type and the deck. Fields are filled by name the way Yomitan fills [Lapis](https://github.com/donkuri/lapis): Expression, ExpressionFurigana, ExpressionReading, MainDefinition, Glossary (all of the entry's definitions), Sentence, Picture, ExpressionAudio, PitchPosition, Frequency and FreqSort. Basic's Front/Back and names like Word, Reading or Meaning work too. Definitions keep Yomitan's markup and, with a database built since v0.4, each dictionary's styles, so they look like the cards Yomitan makes.
+    - **Word audio**: with an audio database loaded, the note's ExpressionAudio field gets a recording of the word. See [Word audio for Anki cards](#word-audio-for-anki-cards).
 - **Dictionary URL template**: `{text}` is replaced with the captured text, e.g. `https://jisho.hlorenzi.com/search/{text}` (the default). The overlay adds ` OCRClip/1` to its user agent, so a self-hosted jisho can switch to a compact layout.
 - **Translate hotkey** (optional): a second button that reads the text the same way, then translates it with DeepL instead of opening the dictionary.
   - **With a DeepL API key** (the [free API plan](https://www.deepl.com/pro-api) covers 500,000 characters a month): a compact popup with the text and its translation appears at the top or bottom edge, whichever is away from the capture region. The game keeps the gamepad while it's open. B, Back, either hotkey or a tap closes it. The target language defaults to `EN-US`.
@@ -75,6 +76,16 @@ The deinflection rules in `app/src/main/assets/japanese-transforms.json` come fr
 git clone --depth 1 https://github.com/yomidevs/yomitan.git
 python tools/export_yomitan_transforms.py yomitan app/src/main/assets/japanese-transforms.json
 ```
+
+## Word audio for Anki cards
+
+The recordings come from the Japanese collection of [Local Audio Server for Yomichan](https://github.com/yomidevs/local-audio-yomichan) (NHK, Shinmeikai, Forvo and JapanesePod101), in the single-file form that add-on makes for Android:
+
+1. On a PC, install the add-on in Anki and put the collection in its `user_files` folder, as its README describes. The Opus collection is half the size of the MP3 one; AnkiDroid and desktop Anki play both, AnkiWeb only MP3.
+2. In Anki, choose **Tools → Local Audio Server → Generate Android database**. This writes `android.db` (several GB) to `user_files`.
+3. Copy `android.db` to the device and load it under **Lookup → Anki → Word audio**. The app keeps its own copy, so the file you copied over can be deleted afterwards.
+
+When you tap **+**, the app looks for the word with the entry's reading, taking the first source that has it in the order NHK, Shinmeikai, JapanesePod101, then Forvo (whose recordings don't say which reading they are). A word without a recording still gets its note, and the page says there was no audio. The note type needs a field named ExpressionAudio (or Audio, WordAudio, VocabAudio, TermAudio).
 
 ## Privacy
 

@@ -174,6 +174,9 @@ class Prefs(context: Context) {
          */
         fun lookupScreenshot(context: Context) = File(context.cacheDir, "lookup_screenshot.jpg")
 
+        /** The recording of the word an Anki note is being added for, on its way to AnkiDroid. */
+        fun lookupAudio(context: Context, extension: String) = File(context.cacheDir, "lookup_audio.$extension")
+
         /** Loaded fonts, one file each, named after the font. */
         fun fontDir(filesDir: File) = File(filesDir, "fonts")
 

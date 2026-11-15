@@ -16,6 +16,8 @@ import android.graphics.drawable.InsetDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.provider.Settings
@@ -85,6 +87,11 @@ class MainActivity : Activity() {
     private lateinit var dictHelp: TextView
     private lateinit var fontGroup: LinearLayout
     private lateinit var ankiGroup: LinearLayout
+    private lateinit var audioGroup: LinearLayout
+
+    /** Words with a recording, with the database's lastModified it was counted for. */
+    private var audioWords: Pair<Long, Int>? = null
+    private var audioRemoveArmed = false
     private lateinit var anki: Anki
 
     /** Which hotkey the next key press binds, or null when not binding. */
@@ -122,6 +129,8 @@ class MainActivity : Activity() {
         showDictionaries()
         showFonts()
         showAnki()
+        audioChanged = { showAudio() }
+        showAudio()
     }
 
     override fun onPause() {
@@ -130,6 +139,7 @@ class MainActivity : Activity() {
         bindDialog?.dismiss()
         stopBinding()
         localDictionary.close()
+        audioChanged = null
     }
 
     private fun refresh() {
@@ -536,11 +546,14 @@ class MainActivity : Activity() {
         val ankiBox = left.section("Anki")
         ankiGroup = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         ankiBox.addView(ankiGroup)
+        audioGroup = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        ankiBox.addView(audioGroup, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dpi(10) })
         val (tagsField, _) = field("Tags", prefs.ankiTags, InputType.TYPE_TEXT_VARIATION_NORMAL) { prefs.ankiTags = it }
         ankiBox.addView(tagsField, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dpi(10) })
         ankiBox.addView(helper("+ next to a definition adds a note to AnkiDroid: the word, that definition, the sentence " +
             "and the screenshot. Fields are filled by name, like Yomitan fills Lapis (Expression, MainDefinition, " +
-            "Sentence, Picture…)."))
+            "Sentence, Picture…). Word audio fills ExpressionAudio from an android.db made on a PC by the Anki add-on " +
+            "Local Audio Server for Yomichan (Generate Android database)."))
         refreshers += { ankiBox.visibility = if (prefs.dictionaryMode == Prefs.DICT_LOCAL) View.VISIBLE else View.GONE }
 
         // Right column: what the chosen mode needs. Built once and shown or hidden, so typing keeps focus.
@@ -737,6 +750,56 @@ class MainActivity : Activity() {
         deck.addView(twoLine("Deck", prefs.ankiDeckName.ifEmpty { "Default" }).first, LinearLayout.LayoutParams(0, WRAP, 1f))
         deck.addView(icon(R.drawable.ic_expand, p.onVar), LinearLayout.LayoutParams(dpi(20), dpi(20)))
         ankiGroup.card(deck)
+    }
+
+    /** The audio database for the notes' word recordings: its state, loading and removing. */
+    private fun showAudio() {
+        audioGroup.removeAllViews()
+        val file = LocalAudio.file(this)
+        val copying = audioCopy
+        val r = row(Pos.SINGLE, minHeight = 64).apply { setPadding(dpi(16), dpi(8), dpi(10), dpi(8)) }
+        val (texts, _, sub) = twoLine("Word audio", "")
+        r.addView(texts, LinearLayout.LayoutParams(0, WRAP, 1f))
+        when {
+            copying != null -> sub.text = copying
+            audioFailure != null -> sub.text = audioFailure
+            !file.exists() -> sub.text = "Not loaded"
+            audioRemoveArmed -> sub.text = "Tap ✕ again to remove it"
+            else -> {
+                val size = "%.1f GB".format(file.length() / 1e9)
+                val stamp = file.lastModified()
+                val words = audioWords?.takeIf { it.first == stamp }?.second
+                sub.text = if (words != null) "%,d words · %s".format(words, size) else size
+                if (words == null) {
+                    Thread {
+                        val count = runCatching { LocalAudio.words(this) }.getOrNull() ?: return@Thread
+                        runOnUiThread {
+                            audioWords = stamp to count
+                            if (!isDestroyed) showAudio()
+                        }
+                    }.start()
+                }
+            }
+        }
+        if (copying == null) {
+            r.addView(button(if (file.exists()) "Replace…" else "Load…", Style.TONAL) {
+                audioRemoveArmed = false
+                audioFailure = null
+                startActivityForResult(
+                    Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), PICK_AUDIO,
+                )
+            }, LinearLayout.LayoutParams(WRAP, dpi(40)))
+            if (file.exists()) {
+                // Two taps, as getting several GB back onto the device takes a while.
+                r.addView(iconButton(R.drawable.ic_close, "Remove the audio database") {
+                    audioFailure = null
+                    if (audioRemoveArmed) file.delete()
+                    audioRemoveArmed = !audioRemoveArmed
+                    showAudio()
+                })
+            }
+        }
+        audioGroup.card(r)
     }
 
     private fun pickAnkiModel() {
@@ -1173,6 +1236,7 @@ class MainActivity : Activity() {
         if (resultCode != RESULT_OK || data == null) return
         when (requestCode) {
             PICK_DATABASE -> data.data?.let { importDatabase(it) }
+            PICK_AUDIO -> data.data?.let { importAudio(it) }
             PICK_FONT -> {
                 val clip = data.clipData
                 importFonts(if (clip != null) (0 until clip.itemCount).map { clip.getItemAt(it).uri } else listOfNotNull(data.data))
@@ -1196,6 +1260,64 @@ class MainActivity : Activity() {
                 val message = failure?.let { "Couldn't load it: ${it.message}" } ?: "Dictionary database loaded"
                 Toast.makeText(this, message, Toast.LENGTH_LONG).show()
                 showDictionaries()
+            }
+        }.start()
+    }
+
+    /**
+     * Copies an audio database in, replacing the loaded one once it's checked. It's several GB, so the row shows how
+     * far the copy is and how it ended (a toast wouldn't last, and Android drops them while the app's notifications
+     * are off). The copy's state is the process's, so it survives the screen being rebuilt.
+     */
+    private fun importAudio(uri: Uri) {
+        if (audioCopy != null) return
+        val app = applicationContext
+        val target = LocalAudio.file(app)
+        val tmp = File(target.path + ".tmp")
+        tmp.delete()
+        fun gb(bytes: Long) = "%.1f".format(bytes / 1e9)
+        val total = runCatching { contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } }.getOrNull() ?: -1
+        // The loaded database stays until the new one is checked, so its space doesn't count as free.
+        val free = target.parentFile!!.usableSpace
+        if (total > free) {
+            audioFailure = "Not enough space: it's ${gb(total)} GB, ${gb(free)} GB is free"
+            showAudio()
+            return
+        }
+        audioCopy = "Copying…"
+        showAudio()
+        val main = Handler(Looper.getMainLooper())
+        Thread {
+            val failure = runCatching {
+                app.contentResolver.openInputStream(uri)!!.use { input ->
+                    tmp.outputStream().use { output ->
+                        val buffer = ByteArray(1 shl 20)
+                        var done = 0L
+                        var shown = 0L
+                        while (true) {
+                            val n = input.read(buffer)
+                            if (n < 0) break
+                            output.write(buffer, 0, n)
+                            done += n
+                            if (done - shown >= 50_000_000) {
+                                shown = done
+                                val text = "Copying… ${gb(done)}" + (if (total > 0) " of ${gb(total)}" else "") + " GB"
+                                main.post {
+                                    audioCopy = text
+                                    audioChanged?.invoke()
+                                }
+                            }
+                        }
+                    }
+                }
+                LocalAudio.validate(tmp)
+                if (!tmp.renameTo(target)) error("couldn't replace the old database")
+            }.exceptionOrNull()
+            tmp.delete()
+            main.post {
+                audioCopy = null
+                audioFailure = failure?.let { "Couldn't load it: ${it.message}" }
+                audioChanged?.invoke()
             }
         }.start()
     }
@@ -1407,9 +1529,17 @@ class MainActivity : Activity() {
     }
 
     companion object {
+        /** Progress of an audio database being copied in, or null when none is; then how it failed, if it did. */
+        private var audioCopy: String? = null
+        private var audioFailure: String? = null
+
+        /** Redraws the audio row of the settings screen that's showing. Main thread only, like the two above. */
+        private var audioChanged: (() -> Unit)? = null
+
         private const val PICK_DATABASE = 1
         private const val PICK_FONT = 2
         private const val REQUEST_ANKI = 3
+        private const val PICK_AUDIO = 4
         private const val FONT_SAMPLE = "あア 直 漢字"
         private const val KEY_SECTION = "section"
         private const val REPO_URL = "https://github.com/aypro/ocrclip"
