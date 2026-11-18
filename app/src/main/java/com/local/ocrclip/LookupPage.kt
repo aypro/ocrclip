@@ -34,8 +34,9 @@ body { font-family: OCRClipJa, sans-serif; }
     fun message(text: String) = "<div class=\"message\">${esc(text)}</div>"
 
     /**
-     * [anki] adds a + button to each definition, which the page script sends to `OCRClip.addToAnki`. Each dictionary's
-     * [styles] (its styles.css) applies to its own entries, as in Yomitan.
+     * [anki] adds a + button to each definition, which the page script sends to `OCRClip.addToAnki`, and one to each
+     * sense of a definition that has several (see [senseCount]). Each dictionary's [styles] (its styles.css) applies
+     * to its own entries, as in Yomitan.
      */
     fun results(result: LocalDictionary.Result, anki: Boolean = false, styles: Map<String, String> = emptyMap()): String {
         result.message?.let { return message(it) }
@@ -64,7 +65,8 @@ body { font-family: OCRClipJa, sans-serif; }
                     append("<li>")
                     if (anki) append("<span class=\"add\" data-e=\"$ei\" data-d=\"$di\">+</span>")
                     for (t in d.tags) append("<span class=\"tag\" title=\"${esc(t.notes)}\">${esc(t.name)}</span>")
-                    append(glossary(d.glossary))
+                    val senses = if (anki && senseCount(d.glossary) >= 2) Senses(ei, di) else null
+                    append(glossary(d.glossary, senses))
                     append("</li>")
                 }
                 if (dictionary != null) append("</ol>")
@@ -83,34 +85,56 @@ body { font-family: OCRClipJa, sans-serif; }
         }
     }
 
-    private fun glossary(items: JSONArray): String {
-        val parts = (0 until items.length()).map { item(items.opt(it), false) }.filter { it.isNotEmpty() }
+    private fun glossary(items: JSONArray, senses: Senses?): String {
+        val parts = (0 until items.length()).map { item(items.opt(it), false, senses) }.filter { it.isNotEmpty() }
         return if (parts.size == 1) parts[0] else "<ul class=\"gloss\">${parts.joinToString("") { "<li>$it</li>" }}</ul>"
     }
 
     /**
      * [definitions] as Yomitan writes its {glossary} into Anki fields: the same markup, class names (gloss-sc-*) and
      * data-sc-* attributes, so note types made for Yomitan (Lapis) style them the same way. Each dictionary's
-     * styles.css follows in a <style>, scoped to that dictionary's entries.
+     * styles.css follows in a <style>, scoped to that dictionary's entries. [single] writes the first definition alone,
+     * like Yomitan's brief glossary: no numbered list, no dictionary name or tags, and no bullet for a lone item.
      */
-    fun ankiGlossary(definitions: List<LocalDictionary.Definition>, styles: Map<String, String>): String = buildString {
-        append("<div class=\"yomitan-glossary\"><ol data-count=\"${definitions.size}\">")
-        for (d in definitions) {
-            val styled = d.dictionary in styles
-            append("<li data-dictionary=\"${esc(d.dictionary)}\"${if (styled) " data-has-styles=\"\"" else ""}>")
+    fun ankiGlossary(
+        definitions: List<LocalDictionary.Definition>, styles: Map<String, String>, single: Boolean = false,
+    ): String = buildString {
+        append("<div class=\"yomitan-glossary\">")
+        if (single) {
+            definitions.firstOrNull()?.let { append(ankiDefinition(it, styles, single = true)) }
+        } else {
+            append("<ol data-count=\"${definitions.size}\">")
+            for (d in definitions) append(ankiDefinition(d, styles, single = false))
+            append("</ol>")
+        }
+        append("</div>")
+        val css = definitions.map { it.dictionary }.distinct().mapNotNull { title -> styles[title]?.let { scopeCss(it, title) } }
+        if (css.isNotEmpty()) append("<style>${css.joinToString("")}</style>")
+    }
+
+    private fun ankiDefinition(
+        d: LocalDictionary.Definition, styles: Map<String, String>, single: Boolean,
+    ) = buildString {
+        val tag = if (single) "div" else "li"
+        val styled = d.dictionary in styles
+        append("<$tag data-dictionary=\"${esc(d.dictionary)}\"${if (styled) " data-has-styles=\"\"" else ""}>")
+        // Like Yomitan's brief glossary, a lone definition goes without its tags (★, priority form) and its name.
+        if (!single) {
             for (t in d.tags) {
                 append("<span class=\"gloss-tag\" data-category=\"${esc(t.category)}\" title=\"${esc(t.notes)}\">")
                 append(esc(t.name).replace(" ", "&nbsp;")).append("</span>")
             }
             append("<i>(${esc(d.dictionary)})</i>")
-            val items = (0 until d.glossary.length()).map { item(d.glossary.opt(it), true) }.filter { it.isNotEmpty() }
+        }
+        val items = (0 until d.glossary.length()).map { item(d.glossary.opt(it), true) }.filter { it.isNotEmpty() }
+        if (single && items.size == 1) {
+            append(items[0])
+        } else {
             append("<ul class=\"gloss-list\" data-count=\"${items.size}\">")
             for (it in items) append("<li class=\"gloss-item\"><div class=\"gloss-content\">$it</div></li>")
-            append("</ul></li>")
+            append("</ul>")
         }
-        append("</ol></div>")
-        val css = definitions.map { it.dictionary }.distinct().mapNotNull { title -> styles[title]?.let { scopeCss(it, title) } }
-        if (css.isNotEmpty()) append("<style>${css.joinToString("")}</style>")
+        append("</$tag>")
     }
 
     /**
@@ -169,11 +193,132 @@ body { font-family: OCRClipJa, sans-serif; }
         return out.filter { it.isNotEmpty() }
     }
 
-    private fun item(item: Any?, anki: Boolean): String = when (item) {
-        is String -> esc(item)
+    /** Gives out the + buttons of one definition's senses, numbered in the order [senseCount] and [onlySense] use. */
+    private class Senses(val entry: Int, val definition: Int) {
+        private var next = 0
+
+        fun button() =
+            "<span class=\"add sense\" data-e=\"$entry\" data-d=\"$definition\" data-s=\"${next++}\">+</span>"
+    }
+
+    /**
+     * How many senses a definition has, counted in document order: elements marked data-content="sense" (Jitendex)
+     * and numbered lines in plain text ([senseLines], 新和英).
+     */
+    fun senseCount(glossary: JSONArray): Int = (0 until glossary.length()).sumOf { i ->
+        val g = glossary.opt(i)
+        val text = plainText(g)
+        when {
+            text != null -> senseLines(text)?.size ?: 0
+            g is JSONObject && g.optString("type") == "structured-content" -> structuredSenses(g.opt("content"))
+            else -> 0
+        }
+    }
+
+    /**
+     * A copy of [glossary] with only sense [index] of [senseCount]'s: other senses go, and so does whatever held only
+     * senses that went (Jitendex's sense groups). Parts that never held a sense (part of speech, forms, the headword
+     * line) stay. Null if there's no such sense.
+     */
+    fun onlySense(glossary: JSONArray, index: Int): JSONArray? {
+        val copy = JSONArray(glossary.toString())
+        val out = JSONArray()
+        var next = 0
+        var found = false
+        fun keep(node: Any?): Boolean {
+            if (node is JSONArray) {
+                var i = 0
+                while (i < node.length()) if (keep(node.opt(i))) i++ else node.remove(i)
+                return true
+            }
+            if (node !is JSONObject) return true
+            if (isSense(node)) return (next++ == index).also { if (it) found = true }
+            if (node.optString("tag") == "a" || structuredSenses(node.opt("content")) == 0) return true
+            return keep(node.opt("content")) && structuredSenses(node.opt("content")) > 0
+        }
+        for (i in 0 until copy.length()) {
+            val g = copy.opt(i)
+            val text = plainText(g)
+            val lines = text?.let { senseLines(it) }
+            when {
+                text != null && lines != null -> {
+                    val k = index - next
+                    next += lines.size
+                    if (k !in lines.indices) continue
+                    found = true
+                    val all = text.split('\n')
+                    val kept = (all.subList(0, lines[0].first) + all.slice(lines[k])).joinToString("\n")
+                    out.put(if (g is JSONObject) g.put("text", kept) else kept)
+                }
+                g is JSONObject && g.optString("type") == "structured-content" &&
+                    structuredSenses(g.opt("content")) > 0 ->
+                    if (keep(g.opt("content")) && structuredSenses(g.opt("content")) > 0) out.put(g)
+                else -> out.put(g)
+            }
+        }
+        return if (found) out else null
+    }
+
+    private fun plainText(g: Any?): String? = when {
+        g is String -> g
+        g is JSONObject && g.optString("type") == "text" -> g.optString("text")
+        else -> null
+    }
+
+    // A sense inside a sense isn't counted, and links don't get buttons, the same way element() renders them.
+    private fun structuredSenses(node: Any?): Int = when (node) {
+        is JSONArray -> (0 until node.length()).sumOf { structuredSenses(node.opt(it)) }
+        is JSONObject -> when {
+            isSense(node) -> 1
+            node.optString("tag") == "a" -> 0
+            else -> structuredSenses(node.opt("content"))
+        }
+        else -> 0
+    }
+
+    private fun isSense(o: JSONObject) =
+        o.optString("tag") in TAGS && o.optJSONObject("data")?.optString("content") == "sense"
+
+    /**
+     * 新和英's senses, as ranges of line indices: after the headword line, lines starting "1 ", "2 "… while the numbers
+     * run on (a phrase after the senses can start its own "1 … 2 …"). The lines up to the next sense belong to a sense
+     * (its 〜する form); after the last one only the 〜 lines do, and the phrases that follow are the whole entry's.
+     * Null unless there are at least two.
+     */
+    fun senseLines(text: String): List<IntRange>? {
+        val lines = text.split('\n')
+        val starts = mutableListOf<Int>()
+        for (i in 1 until lines.size) {
+            val n = NUMBERED.find(lines[i])?.groupValues?.get(1)?.toIntOrNull() ?: continue
+            if (n != starts.size + 1) break
+            starts += i
+        }
+        if (starts.size < 2) return null
+        var end = starts.last() + 1
+        while (end < lines.size && lines[end].startsWith("〜")) end++
+        return starts.mapIndexed { k, start -> start until (starts.getOrNull(k + 1) ?: end) }
+    }
+
+    /** Plain text on the page, with a + before each sense when [senses] is given; on a card, newlines become <br>. */
+    private fun plain(text: String, anki: Boolean, senses: Senses?): String {
+        if (anki) return esc(text.trimEnd('\n')).replace("\n", "<br>")
+        val ranges = senses?.let { senseLines(text) } ?: return esc(text)
+        val lines = text.split('\n')
+        return buildString {
+            append(esc(lines.subList(0, ranges[0].first).joinToString("\n")))
+            for (r in ranges) {
+                append("<div class=\"sense-add\">").append(senses.button())
+                append(esc(lines.slice(r).joinToString("\n"))).append("</div>")
+            }
+            append(esc(lines.subList(ranges.last().last + 1, lines.size).joinToString("\n")))
+        }
+    }
+
+    private fun item(item: Any?, anki: Boolean, senses: Senses? = null): String = when (item) {
+        is String -> plain(item, anki, senses)
         is JSONObject -> when (item.optString("type")) {
-            "text" -> esc(item.optString("text"))
-            "structured-content" -> content(item.opt("content"), anki)
+            "text" -> plain(item.optString("text"), anki, senses)
+            "structured-content" -> content(item.opt("content"), anki, senses)
             "image" -> image(item)
             else -> ""
         }
@@ -189,24 +334,25 @@ body { font-family: OCRClipJa, sans-serif; }
     /**
      * Yomitan structured content, limited to its own tag set so a dictionary can't inject scripts or real links.
      * Elements get Yomitan's gloss-sc-* class and data-sc-* attributes, which dictionary styles select on; [anki]
-     * only changes how links are written.
+     * only changes how links are written. With [senses], each sense element starts with its + button.
      */
-    private fun content(node: Any?, anki: Boolean): String = when (node) {
+    private fun content(node: Any?, anki: Boolean, senses: Senses? = null): String = when (node) {
         is String -> esc(node)
-        is JSONArray -> (0 until node.length()).joinToString("") { content(node.opt(it), anki) }
-        is JSONObject -> element(node, anki)
+        is JSONArray -> (0 until node.length()).joinToString("") { content(node.opt(it), anki, senses) }
+        is JSONObject -> element(node, anki, senses)
         else -> ""
     }
 
-    private fun element(o: JSONObject, anki: Boolean): String {
+    private fun element(o: JSONObject, anki: Boolean, senses: Senses?): String {
         val tag = o.optString("tag")
         when (tag) {
             "br" -> return "<br>"
             "img" -> return image(o)
             "a" -> return link(o, anki)
-            !in TAGS -> return content(o.opt("content"), anki)
+            !in TAGS -> return content(o.opt("content"), anki, senses)
         }
-        val attrs = StringBuilder(" class=\"gloss-sc-$tag\"")
+        val sense = senses != null && isSense(o)
+        val attrs = StringBuilder(" class=\"gloss-sc-$tag${if (sense) " sense-add" else ""}\"")
         o.optJSONObject("data")?.let { data ->
             for (key in data.keys()) {
                 if (!key.all { it.isLetterOrDigit() || it == '-' }) continue
@@ -221,7 +367,8 @@ body { font-family: OCRClipJa, sans-serif; }
         if (o.has("colSpan")) attrs.append(" colspan=\"${o.optInt("colSpan", 1)}\"")
         if (o.has("rowSpan")) attrs.append(" rowspan=\"${o.optInt("rowSpan", 1)}\"")
         if (tag == "details" && o.optBoolean("open")) attrs.append(" open")
-        return "<$tag$attrs>${content(o.opt("content"), anki)}</$tag>"
+        val button = if (sense) senses!!.button() else ""
+        return "<$tag$attrs>$button${content(o.opt("content"), anki, if (sense) null else senses)}</$tag>"
     }
 
     private fun kebab(name: String) = name.replace(Regex("[A-Z]")) { "-" + it.value.lowercase() }
@@ -294,6 +441,7 @@ body { font-family: OCRClipJa, sans-serif; }
         "ruby", "rt", "rp", "table", "thead", "tbody", "tfoot", "tr", "td", "th", "span", "div", "ol", "ul", "li",
         "details", "summary",
     )
+    private val NUMBERED = Regex("""^(\d+) """)
     private val SAFE_CSS = Regex("""[\w\s#%.,()+-]*""")
     private const val SMALL_KANA = "ゃゅょぁぃぅぇぉゎャュョァィゥェォヮ"
 
@@ -328,6 +476,8 @@ li { white-space: pre-line; }
 .link[data-q] { color: #6cb4ff; cursor: pointer; }
 .add { float: right; min-width: 40px; height: 32px; margin: 0 0 4px 10px; border-radius: 16px; background: #2d4f6c;
     color: #fff; text-align: center; font-size: 22px; line-height: 32px; cursor: pointer; white-space: nowrap; }
+.add.sense { min-width: 32px; height: 26px; border-radius: 13px; font-size: 18px; line-height: 26px; }
+.sense-add { clear: right; }
 .add.busy { opacity: 0.6; }
 .add.done { background: #2e5d3a; }
 .add.dup { background: #2e5d3a; opacity: 0.75; }
@@ -455,7 +605,8 @@ results.addEventListener('click', (e) => {
         const offset = current.q === undefined ? pos : -1; // where the word is in the captured text
         // Let the dots paint before the bridge call holds up the page.
         setTimeout(() => {
-            const added = JSON.parse(OCRClip.addToAnki(+add.dataset.e, +add.dataset.d, offset));
+            const sense = add.dataset.s === undefined ? -1 : +add.dataset.s; // -1: the whole definition
+            const added = JSON.parse(OCRClip.addToAnki(+add.dataset.e, +add.dataset.d, sense, offset));
             add.classList.remove('busy');
             if (added.error) {
                 add.textContent = '+';

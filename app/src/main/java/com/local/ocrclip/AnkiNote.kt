@@ -2,9 +2,9 @@ package com.local.ocrclip
 
 /**
  * Field values for an Anki note from one looked-up entry, matched by field name the way Yomitan's Lapis setup fills
- * them: Expression, ExpressionFurigana, ExpressionReading, MainDefinition (the definition picked), Glossary (all of
- * the entry's), Sentence, Picture, ExpressionAudio, PitchPosition, Frequency and FreqSort. A few common names from
- * other note types (Word, Reading, Meaning, Front/Back…) map too; other fields stay empty.
+ * them: Expression, ExpressionFurigana, ExpressionReading, MainDefinition (the definition or sense picked), Glossary
+ * (all of the entry's), Sentence, Picture, ExpressionAudio, PitchPosition, Frequency and FreqSort. A few common names
+ * from other note types (Word, Reading, Meaning, Front/Back…) map too; other fields stay empty.
  */
 object AnkiNote {
     class Source(
@@ -52,7 +52,7 @@ object AnkiNote {
             Value.TERM -> s.entry.term
             Value.READING -> s.entry.reading
             Value.FURIGANA -> furigana(s.entry.term, s.entry.reading)
-            Value.DEFINITION -> LookupPage.ankiGlossary(listOf(s.definition), s.styles)
+            Value.DEFINITION -> LookupPage.ankiGlossary(listOf(s.definition), s.styles, single = true)
             Value.GLOSSARY -> LookupPage.ankiGlossary(s.entry.definitions, s.styles)
             Value.SENTENCE -> sentence(s)
             Value.PICTURE -> s.picture?.let { "<img src=\"${esc(it)}\">" } ?: ""

@@ -151,9 +151,12 @@ class LocalDictionary(private val context: Context) {
 
     /** Adds a note and returns JSON: `error` if it wasn't added, or `notice` for something to say about one that was. */
     @JavascriptInterface
-    fun addToAnki(entry: Int, definition: Int, offset: Int): String {
+    fun addToAnki(entry: Int, definition: Int, sense: Int, offset: Int): String {
         val e = shown?.entries?.getOrNull(entry)
-        val d = e?.definitions?.getOrNull(definition)
+        // A sense's + adds the definition trimmed to that sense.
+        val d = e?.definitions?.getOrNull(definition)?.let { d ->
+            if (sense < 0) d else LookupPage.onlySense(d.glossary, sense)?.let { Definition(d.dictionary, d.tags, it) }
+        }
         val add = anki
         val added = when {
             add == null -> Added("Anki isn't set up in OCR Clip's settings")
