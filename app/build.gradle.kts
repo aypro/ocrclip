@@ -10,8 +10,8 @@ android {
         applicationId = "com.local.ocrclip"
         minSdk = 30 // AccessibilityService.takeScreenshot
         targetSdk = 36
-        versionCode = 12
-        versionName = "0.6"
+        versionCode = 13
+        versionName = "0.6.1"
 
         // Retroid Pocket Classic (and nearly every current device) is arm64; drops the other ABIs' copies of the OCR model.
         ndk { abiFilters += "arm64-v8a" }
