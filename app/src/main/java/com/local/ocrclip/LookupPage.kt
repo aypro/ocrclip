@@ -7,7 +7,7 @@ import org.json.JSONObject
 /**
  * The offline dictionary overlay: the captured text, tappable per character, above the entries found from the
  * character picked. D-pad right jumps past the word just looked up, left steps back a character. Cross-reference
- * links in the entries look their word up in place; B returns.
+ * links in the entries, and any other Japanese text tapped in them, look their word up in place; B returns.
  */
 object LookupPage {
     /**
@@ -621,8 +621,51 @@ results.addEventListener('click', (e) => {
         return;
     }
     const link = e.target.closest('.link[data-q]');
-    if (link) follow(link.dataset.q, link.dataset.r);
+    if (link) {
+        follow(link.dataset.q, link.dataset.r);
+        return;
+    }
+    const scanned = scanAt(e.clientX, e.clientY);
+    if (scanned) follow(scanned, '');
 });
+// Other Japanese text in the entries is looked up from the tapped character, like Yomitan's scan: the run of Japanese
+// from there, up to 16 characters (LocalDictionary.MAX_LENGTH), read across inline elements without furigana. The
+// longest match is found by lookupTerm. Same characters as LocalDictionary.isJapanese.
+const JAPANESE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ーｰ゛゜ﾞﾟ０-９Ａ-Ｚａ-ｚ]/u;
+const SKIP = 'rt, rp, .add, .tag, .freq';
+function charRect(node, offset) {
+    const range = document.createRange();
+    range.setStart(node, offset);
+    range.setEnd(node, Math.min(node.data.length, offset + 1));
+    return range.getBoundingClientRect();
+}
+function scanAt(x, y) {
+    const caret = document.caretRangeFromPoint(x, y);
+    if (!caret) return '';
+    const node = caret.startContainer;
+    if (node.nodeType !== Node.TEXT_NODE || !results.contains(node) || node.parentElement.closest(SKIP)) return '';
+    // The caret lands after a character tapped on its right half; a tap that misses both is on blank space. A
+    // character under the finger wins over one only within the slop.
+    const candidates = [caret.startOffset, caret.startOffset - 1].filter((o) => o >= 0 && o < node.data.length);
+    const hits = (o, slop) => {
+        const r = charRect(node, o);
+        return r.width > 0 && x >= r.left - slop && x <= r.right + slop && y >= r.top - slop && y <= r.bottom + slop;
+    };
+    const offset = candidates.find((o) => hits(o, 0)) ?? candidates.find((o) => hits(o, 4)) ?? -1;
+    if (offset < 0) return '';
+    let text = '';
+    const root = node.parentElement.closest('li, td, th, div') || results;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    walker.currentNode = node;
+    for (let n = node, start = offset; n; n = walker.nextNode(), start = 0) {
+        if (n !== node && n.parentElement.closest(SKIP)) continue;
+        for (const ch of n.data.substring(start)) {
+            if (!JAPANESE.test(ch) || text.length >= 16) return text;
+            text += ch;
+        }
+    }
+    return text;
+}
 document.addEventListener('keydown', (e) => {
     const k = chars.findIndex(([i]) => i === pos);
     if (e.key === 'ArrowRight') {

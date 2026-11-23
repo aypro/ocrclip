@@ -205,11 +205,20 @@ class LocalDictionary(private val context: Context) {
         if (dictionaries.isEmpty()) {
             return Result(0, emptyList(), emptyList(), "All dictionaries are turned off in OCR Clip's settings.")
         }
+        // Only the run of Japanese from the offset is looked up: English, punctuation and brackets end the scan, and a
+        // lookup starting on one finds nothing without asking the database.
+        var limit = offset
+        while (limit < text.length && limit - offset < MAX_LENGTH) {
+            val cp = text.codePointAt(limit)
+            if (!isJapanese(cp)) break
+            limit += Character.charCount(cp)
+        }
+        if (limit == offset) return Result(0, emptyList(), emptyList())
         val byId = dictionaries.associateBy { it.id }
         val rank = dictionaries.withIndex().associate { (i, d) -> d.id to i }
         val seen = HashSet<Long>()
         val matches = mutableListOf<Match>()
-        for (end in minOf(text.length, offset + MAX_LENGTH) downTo offset + 1) {
+        for (end in limit downTo offset + 1) {
             val candidates = variants(text.substring(offset, end))
                 .flatMap { deinflector.deinflect(it) }
                 .filter { it.text.isNotEmpty() }
@@ -365,6 +374,16 @@ class LocalDictionary(private val context: Context) {
                 out.write(buffer, 0, n)
             }
             return out.toString(Charsets.UTF_8.name())
+        }
+
+        /**
+         * Kana, kanji (with 々 〆 〇), the long vowel marks and full-width letters and digits (ＣＤ, Ｔシャツ): what
+         * dictionary terms are written with. Keep the page's JAPANESE regex in LookupPage in step.
+         */
+        fun isJapanese(cp: Int) = when (Character.UnicodeScript.of(cp)) {
+            Character.UnicodeScript.HAN, Character.UnicodeScript.HIRAGANA, Character.UnicodeScript.KATAKANA -> true
+            else -> cp == 0x30FC || cp == 0xFF70 || cp in 0x309B..0x309C || cp in 0xFF9E..0xFF9F ||
+                cp in 0xFF10..0xFF19 || cp in 0xFF21..0xFF3A || cp in 0xFF41..0xFF5A
         }
 
         /** Like Yomitan's text preprocessors: width and compatibility forms folded, and both kana scripts tried. */
