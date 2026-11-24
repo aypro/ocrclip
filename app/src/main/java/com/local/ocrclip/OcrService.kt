@@ -13,6 +13,8 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.RectF
 import android.hardware.display.DisplayManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Handler
 import android.os.Looper
 import android.view.Display
@@ -27,8 +29,12 @@ import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
 import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
 import java.io.File
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 class OcrService : AccessibilityService() {
     private lateinit var prefs: Prefs
@@ -38,6 +44,7 @@ class OcrService : AccessibilityService() {
     private val main = Handler(Looper.getMainLooper())
     private var busy = false
     private lateinit var localDictionary: LocalDictionary
+    private lateinit var localTranslator: LocalTranslator
     private lateinit var anki: Anki
     private lateinit var displays: DisplayManager
 
@@ -137,7 +144,7 @@ class OcrService : AccessibilityService() {
     /** Failures show here, not in a toast: Android drops an app's toasts while its notifications are off. */
     private lateinit var notice: Notice
 
-    /** Bumped per DeepL request, so a late answer for a closed or replaced popup is dropped. */
+    /** Bumped per translation, so a late answer for a closed or replaced popup is dropped (and the model stops). */
     private var translation = 0
 
     /** What a capture does with the text once it's recognised. */
@@ -156,6 +163,7 @@ class OcrService : AccessibilityService() {
         worker = Executors.newSingleThreadExecutor()
         network = Executors.newSingleThreadExecutor()
         localDictionary = LocalDictionary(this)
+        localTranslator = LocalTranslator(this)
         game = Screen(null)
         anki = Anki(this)
         notice = Notice(this)
@@ -180,6 +188,7 @@ class OcrService : AccessibilityService() {
         if (::notice.isInitialized) notice.hide()
         dropPanel()
         if (::localDictionary.isInitialized) localDictionary.close()
+        if (::localTranslator.isInitialized) localTranslator.close()
         super.onDestroy()
     }
 
@@ -264,21 +273,43 @@ class OcrService : AccessibilityService() {
         })
     }
 
+    /**
+     * Google Lens, or ML Kit on the device: the chosen engine, or ML Kit when Lens can't be reached. Without a
+     * connection it doesn't wait for Lens's timeout.
+     */
     private fun recognize(image: Bitmap, action: Action) {
-        if (prefs.engine == Prefs.ENGINE_LENS) {
+        if (prefs.engine == Prefs.ENGINE_LENS && online()) {
             network.execute {
                 runCatching { LensOcr.recognize(image) }
                     .onSuccess { lines -> main.post { deliver(format(lines, prefs.keepNewlines), action) } }
-                    .onFailure { fail("Google Lens failed: ${it.message}") }
+                    .onFailure {
+                        if (unreachable(it)) main.post { recognizeOnDevice(image, action, lensSkipped = true) }
+                        else fail("Google Lens failed: ${it.message}")
+                    }
             }
         } else {
-            recognizer.process(InputImage.fromBitmap(image, 0))
-                .addOnSuccessListener { text -> deliver(format(mlKitLines(text), prefs.keepNewlines), action) }
-                .addOnFailureListener { fail("OCR failed: ${it.message}") }
+            recognizeOnDevice(image, action, lensSkipped = prefs.engine == Prefs.ENGINE_LENS)
         }
     }
 
-    private fun deliver(text: String, action: Action) {
+    private fun recognizeOnDevice(image: Bitmap, action: Action, lensSkipped: Boolean) {
+        recognizer.process(InputImage.fromBitmap(image, 0))
+            .addOnSuccessListener { text -> deliver(format(mlKitLines(text), prefs.keepNewlines), action, lensSkipped) }
+            .addOnFailureListener { fail("OCR failed: ${it.message}") }
+    }
+
+    /**
+     * Whether there's a network that offers internet. Not whether Android validated it: some firmware never does,
+     * and a request that then fails falls back anyway.
+     */
+    private fun online(): Boolean {
+        val connectivity = getSystemService(ConnectivityManager::class.java)
+        val capabilities = connectivity.getNetworkCapabilities(connectivity.activeNetwork) ?: return false
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    /** [lensSkipped]: read on the device because Lens couldn't be reached; the translation popup says so. */
+    private fun deliver(text: String, action: Action, lensSkipped: Boolean = false) {
         if (text.isEmpty()) {
             fail("No text found")
             return
@@ -291,18 +322,24 @@ class OcrService : AccessibilityService() {
         when (action) {
             Action.LOOKUP -> if (prefs.dictionaryMode != Prefs.DICT_OFF) openDictionary(text)
             // The translator always opens over the game; that's the point of its separate hotkey.
-            Action.TRANSLATE -> translate(text)
+            Action.TRANSLATE -> translate(text, lensSkipped)
         }
         done(if (prefs.showToast) text else null)
     }
 
-    /** DeepL API popup when a key is set, otherwise (or if the API fails) the translator page. */
-    private fun translate(text: String) {
+    /**
+     * Into the popup: from DeepL, with the offline model as its fallback, or from the offline model alone, as set in
+     * [Prefs.translateEngine]. The translator page opens when neither can translate.
+     */
+    private fun translate(text: String, lensSkipped: Boolean) {
         val screen = screen()
         val translator = screen.translator
         val popup = screen.popup
         val key = prefs.deeplKey
-        if (key.isEmpty()) {
+        val deepl = prefs.translateEngine == Prefs.TRANSLATE_DEEPL && key.isNotEmpty()
+        val offline = localTranslator.available
+        if (!deepl && !offline) {
+            if (prefs.translateEngine == Prefs.TRANSLATE_OFFLINE) showNotice("No offline translation model loaded")
             screen.only(translator)
             translator.show(Prefs.fillTemplate(prefs.translateUrl, text))
             return
@@ -312,19 +349,61 @@ class OcrService : AccessibilityService() {
         screen.only(popup)
         popup.show(text, atTop = screen.panel || (prefs.region?.centerY() ?: 1f) > 0.5f)
         val request = ++translation
+        val ocr = if (lensSkipped) "On-device OCR" else null
+        if (!deepl) return translateOffline(text, screen, request, listOfNotNull(ocr))
+        // Without a connection, straight to the offline model rather than waiting for DeepL to fail.
+        if (offline && !online()) return translateOffline(text, screen, request, listOfNotNull("No connection", ocr))
         val target = prefs.deeplTarget
         network.execute {
             val result = runCatching { DeepL.translate(text, key, target) }
             main.post {
                 if (request != translation || !popup.isShowing) return@post
-                result.onSuccess { popup.setTranslation(it) }.onFailure {
+                result.onSuccess {
+                    popup.setTranslation(it)
+                    if (ocr != null) popup.setNote(ocr)
+                }.onFailure {
+                    val why = if (unreachable(it)) "No connection" else "DeepL failed: ${it.message}"
+                    if (offline) return@post translateOffline(text, screen, request, listOfNotNull(why, ocr))
                     popup.hide()
-                    showNotice("DeepL failed: ${it.message}")
+                    showNotice(why)
                     translator.show(Prefs.fillTemplate(prefs.translateUrl, text))
                 }
             }
         }
     }
+
+    /** The offline model's translation, streamed into the popup; [notes] say why DeepL or Lens weren't used. */
+    private fun translateOffline(text: String, screen: Screen, request: Int, notes: List<String>) {
+        val popup = screen.popup
+        val note = (notes + "Offline translation").joinToString(" · ")
+        popup.setNote(note)
+        val stopped = AtomicBoolean(false)
+        // The callbacks run on the translator's thread; the popup is only touched on the main one.
+        fun onMain(block: () -> Unit) = main.post {
+            if (request != translation || !popup.isShowing) stopped.set(true) else block()
+        }
+        localTranslator.translate(
+            text,
+            loading = { onMain { popup.setNote("$note · loading the model…") } },
+            progress = { partial ->
+                onMain {
+                    popup.setNote(note)
+                    popup.setTranslation(partial)
+                }
+                !stopped.get()
+            },
+            done = { failure ->
+                if (failure != null) onMain {
+                    popup.hide()
+                    showNotice("Offline translation failed: ${failure.message}")
+                    screen.translator.show(Prefs.fillTemplate(prefs.translateUrl, text))
+                }
+            },
+        )
+    }
+
+    /** A request that failed for want of a connection, not because the service refused it. */
+    private fun unreachable(e: Throwable) = e is UnknownHostException || e is ConnectException || e is SocketTimeoutException
 
     private fun openDictionary(text: String) {
         val screen = screen()

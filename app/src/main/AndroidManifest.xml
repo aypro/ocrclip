@@ -2,8 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Only used by the Google Lens engine. -->
+    <!-- Google Lens OCR and DeepL. Without a working connection, both fall back to on-device engines. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- Re-enable the accessibility service after the firmware resets it on boot. WRITE_SECURE_SETTINGS
          is only usable after `adb shell pm grant com.local.ocrclip android.permission.WRITE_SECURE_SETTINGS`. -->

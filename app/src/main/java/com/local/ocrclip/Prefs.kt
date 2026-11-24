@@ -92,7 +92,20 @@ class Prefs(context: Context) {
         get() = sp.getString("translate_url", DEFAULT_TRANSLATE_URL) ?: DEFAULT_TRANSLATE_URL
         set(v) = sp.edit().putString("translate_url", v).apply()
 
-    /** DeepL API key for the translate popup; empty means use the translator page instead. */
+    /**
+     * What the translate hotkey uses: [TRANSLATE_DEEPL] (the offline model is its fallback when a request fails) or
+     * [TRANSLATE_OFFLINE] (DeepL is never called). The translator page is the last resort of both.
+     */
+    var translateEngine: String
+        get() = sp.getString("translate_engine", TRANSLATE_DEEPL) ?: TRANSLATE_DEEPL
+        set(v) = sp.edit().putString("translate_engine", v).apply()
+
+    /** File name of the loaded translation model ([LocalTranslator.file]), only shown. */
+    var translateModelName: String
+        get() = sp.getString("translate_model_name", "") ?: ""
+        set(v) = sp.edit().putString("translate_model_name", v).apply()
+
+    /** DeepL API key for the translate popup; empty means the offline model or the translator page instead. */
     var deeplKey: String
         get() = sp.getString("deepl_key", "") ?: ""
         set(v) = sp.edit().putString("deepl_key", v).apply()
@@ -161,6 +174,8 @@ class Prefs(context: Context) {
         const val DICT_OFF = "off"
         const val DICT_OVERLAY = "overlay"
         const val DICT_LOCAL = "local"
+        const val TRANSLATE_DEEPL = "deepl"
+        const val TRANSLATE_OFFLINE = "offline"
         const val DEFAULT_DICTIONARY_URL = "https://jisho.hlorenzi.com/search/{text}"
         const val DEFAULT_TRANSLATE_URL = "https://www.deepl.com/translator#ja/en/{text}"
         const val DEFAULT_DEEPL_TARGET = "EN-US"

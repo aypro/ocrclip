@@ -88,10 +88,10 @@ class MainActivity : Activity() {
     private lateinit var fontGroup: LinearLayout
     private lateinit var ankiGroup: LinearLayout
     private lateinit var audioGroup: LinearLayout
+    private lateinit var modelGroup: LinearLayout
 
     /** Words with a recording, with the database's lastModified it was counted for. */
     private var audioWords: Pair<Long, Int>? = null
-    private var audioRemoveArmed = false
     private lateinit var anki: Anki
 
     /** Which hotkey the next key press binds, or null when not binding. */
@@ -129,8 +129,13 @@ class MainActivity : Activity() {
         showDictionaries()
         showFonts()
         showAnki()
-        audioChanged = { showAudio() }
+        audio.changed = { showAudio() }
+        model.changed = {
+            showModel()
+            refresh() // the engine note and "What leaves this device" depend on whether a model is loaded
+        }
         showAudio()
+        showModel()
     }
 
     override fun onPause() {
@@ -139,7 +144,8 @@ class MainActivity : Activity() {
         bindDialog?.dismiss()
         stopBinding()
         localDictionary.close()
-        audioChanged = null
+        audio.changed = null
+        model.changed = null
     }
 
     private fun refresh() {
@@ -346,7 +352,9 @@ class MainActivity : Activity() {
         left.section("Hotkey").card(keyCard("Lookup hotkey", { prefs.hotkey }, null) { startBinding(Binding.LOOKUP) })
 
         val engine = left.section("OCR engine")
-        engine.addView(segmented(), LinearLayout.LayoutParams(MATCH, dpi(48)))
+        val engines = listOf(Prefs.ENGINE_LOCAL to "On-device", Prefs.ENGINE_LENS to "Google Lens")
+        engine.addView(segmented(engines, { prefs.engine }) { prefs.engine = it },
+            LinearLayout.LayoutParams(MATCH, dpi(48)))
         val note = LinearLayout(this).apply { setPadding(dpi(6), dpi(10), dpi(6), 0) }
         val noteIcon = icon(R.drawable.ic_cloud, p.onVar)
         note.addView(noteIcon, LinearLayout.LayoutParams(dpi(18), dpi(18)).apply {
@@ -390,14 +398,13 @@ class MainActivity : Activity() {
         after.card(switchRow(Pos.BOTTOM, "Keep line breaks", { prefs.keepNewlines }) { prefs.keepNewlines = it })
     }
 
-    /** On-device | Google Lens, as one outlined bar. */
-    private fun segmented(): View {
+    /** Two choices for one preference, as one outlined bar. */
+    private fun segmented(options: List<Pair<String, String>>, get: () -> String, set: (String) -> Unit): View {
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dpi(1), dpi(1), dpi(1), dpi(1))
             background = shape(radiiAll(24), Color.TRANSPARENT, p.outline, dpi(1))
         }
-        val options = listOf(Prefs.ENGINE_LOCAL to "On-device", Prefs.ENGINE_LENS to "Google Lens")
         for ((i, option) in options.withIndex()) {
             val (value, name) = option
             val r = dp(23f)
@@ -407,8 +414,8 @@ class MainActivity : Activity() {
                 gravity = Gravity.CENTER
                 isFocusable = true
                 isClickable = true
-                setOnClickListener { prefs.engine = value }
-                announceAs("android.widget.RadioButton") { prefs.engine == value }
+                setOnClickListener { set(value) }
+                announceAs("android.widget.RadioButton") { get() == value }
             }
             val check = icon(R.drawable.ic_check, p.onSc)
             seg.addView(check, LinearLayout.LayoutParams(dpi(18), dpi(18)).apply { marginEnd = dpi(6) })
@@ -417,7 +424,7 @@ class MainActivity : Activity() {
             if (i == 1) bar.addView(View(this).apply { setBackgroundColor(p.outline) }, LinearLayout.LayoutParams(dpi(1), MATCH))
             bar.addView(seg, LinearLayout.LayoutParams(0, MATCH, 1f))
             refreshers += {
-                val on = prefs.engine == value
+                val on = get() == value
                 seg.background = tappable(p, corners, if (on) p.sc else Color.TRANSPARENT)
                 check.visibility = if (on) View.VISIBLE else View.GONE
                 text.setTextColor(if (on) p.onSc else p.on)
@@ -753,53 +760,65 @@ class MainActivity : Activity() {
     }
 
     /** The audio database for the notes' word recordings: its state, loading and removing. */
-    private fun showAudio() {
-        audioGroup.removeAllViews()
-        val file = LocalAudio.file(this)
-        val copying = audioCopy
+    private fun showAudio(): Unit = showFile(audioGroup, "Word audio", LocalAudio.file(this), audio,
+        "Remove the audio database") { file ->
+        val stamp = file.lastModified()
+        val words = audioWords?.takeIf { it.first == stamp }?.second
+        if (words == null) {
+            Thread {
+                val count = runCatching { LocalAudio.words(this) }.getOrNull() ?: return@Thread
+                runOnUiThread {
+                    audioWords = stamp to count
+                    if (!isDestroyed) showAudio()
+                }
+            }.start()
+        }
+        words?.let { "%,d words".format(it) }
+    }
+
+    /** The offline translation model: its state, loading and removing. */
+    private fun showModel(): Unit = showFile(modelGroup, "Model", LocalTranslator.file(this), model,
+        "Remove the translation model") { prefs.translateModelName.removeSuffix(".gguf").ifEmpty { null } }
+
+    /**
+     * The row of a large file the settings copy in: its size and [details], or how far a copy is or how it failed,
+     * with Load/Replace and a two-tap ✕ (getting several GB back onto the device takes a while).
+     */
+    private fun showFile(
+        group: LinearLayout, title: String, file: File, state: Import, removeName: String, details: (File) -> String?,
+    ) {
+        group.removeAllViews()
+        val copying = state.progress
         val r = row(Pos.SINGLE, minHeight = 64).apply { setPadding(dpi(16), dpi(8), dpi(10), dpi(8)) }
-        val (texts, _, sub) = twoLine("Word audio", "")
+        val (texts, _, sub) = twoLine(title, "")
         r.addView(texts, LinearLayout.LayoutParams(0, WRAP, 1f))
         when {
             copying != null -> sub.text = copying
-            audioFailure != null -> sub.text = audioFailure
+            state.failure != null -> sub.text = state.failure
             !file.exists() -> sub.text = "Not loaded"
-            audioRemoveArmed -> sub.text = "Tap ✕ again to remove it"
+            state.removeArmed -> sub.text = "Tap ✕ again to remove it"
             else -> {
                 val size = "%.1f GB".format(file.length() / 1e9)
-                val stamp = file.lastModified()
-                val words = audioWords?.takeIf { it.first == stamp }?.second
-                sub.text = if (words != null) "%,d words · %s".format(words, size) else size
-                if (words == null) {
-                    Thread {
-                        val count = runCatching { LocalAudio.words(this) }.getOrNull() ?: return@Thread
-                        runOnUiThread {
-                            audioWords = stamp to count
-                            if (!isDestroyed) showAudio()
-                        }
-                    }.start()
-                }
+                sub.text = details(file)?.let { "$it · $size" } ?: size
             }
         }
         if (copying == null) {
             r.addView(button(if (file.exists()) "Replace…" else "Load…", Style.TONAL) {
-                audioRemoveArmed = false
-                audioFailure = null
-                startActivityForResult(
-                    Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), PICK_AUDIO,
-                )
+                state.removeArmed = false
+                state.failure = null
+                val pick = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+                startActivityForResult(pick, state.pick)
             }, LinearLayout.LayoutParams(WRAP, dpi(40)))
             if (file.exists()) {
-                // Two taps, as getting several GB back onto the device takes a while.
-                r.addView(iconButton(R.drawable.ic_close, "Remove the audio database") {
-                    audioFailure = null
-                    if (audioRemoveArmed) file.delete()
-                    audioRemoveArmed = !audioRemoveArmed
-                    showAudio()
+                r.addView(iconButton(R.drawable.ic_close, removeName) {
+                    state.failure = null
+                    if (state.removeArmed) file.delete()
+                    state.removeArmed = !state.removeArmed
+                    state.changed?.invoke()
                 })
             }
         }
-        audioGroup.card(r)
+        group.card(r)
     }
 
     private fun pickAnkiModel() {
@@ -846,6 +865,31 @@ class MainActivity : Activity() {
             prefs.translateHotkey = KeyEvent.KEYCODE_UNKNOWN
         }) { startBinding(Binding.TRANSLATE) })
 
+        val engine = left.section("Translate with")
+        val engines = listOf(Prefs.TRANSLATE_DEEPL to "DeepL", Prefs.TRANSLATE_OFFLINE to "Offline model")
+        engine.addView(segmented(engines, { prefs.translateEngine }) { prefs.translateEngine = it },
+            LinearLayout.LayoutParams(MATCH, dpi(48)))
+        val note = LinearLayout(this).apply { setPadding(dpi(6), dpi(10), dpi(6), 0) }
+        val noteIcon = icon(R.drawable.ic_cloud, p.onVar)
+        note.addView(noteIcon, LinearLayout.LayoutParams(dpi(18), dpi(18)).apply {
+            marginEnd = dpi(10)
+            topMargin = dpi(1)
+        })
+        val noteText = label(13f, p.onVar)
+        note.addView(noteText, LinearLayout.LayoutParams(0, WRAP, 1f))
+        engine.addView(note)
+        refreshers += {
+            val offline = prefs.translateEngine == Prefs.TRANSLATE_OFFLINE
+            val loaded = LocalTranslator.file(this).exists()
+            noteIcon.setImageResource(if (offline) R.drawable.ic_lock else R.drawable.ic_cloud)
+            noteText.text = when {
+                offline && !loaded -> "Load a model under Offline model first. Until then the translator page opens."
+                offline -> "Translates into English on this device. Nothing leaves it."
+                loaded -> "Sends the text to DeepL. Without a connection, the offline model translates instead."
+                else -> "Sends the text to DeepL. Load an offline model to translate without a connection too."
+            }
+        }
+
         val deepl = left.section("DeepL API")
         val passwordType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         val visibleType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
@@ -870,7 +914,7 @@ class MainActivity : Activity() {
         refreshers += {
             val key = prefs.deeplKey
             keyHelp.text = when {
-                key.isEmpty() -> "Empty: the translator page below is used"
+                key.isEmpty() -> "Empty: the offline model or the translator page is used"
                 key.endsWith(":fx") -> "Free API plan key"
                 else -> "Pro API key"
             }
@@ -905,12 +949,24 @@ class MainActivity : Activity() {
         right.section("Popup").card(popup)
         refreshers += { preview.region = prefs.region }
 
-        val fallback = right.section("Without a key")
+        val offline = right.section("Offline model")
+        modelGroup = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        offline.addView(modelGroup)
+        offline.addView(helper(
+            if (!LocalTranslator.supported) "This device's CPU can't run the offline model."
+            else "A CAT-Translate GGUF from Hugging Face, e.g. CAT-Translate-3.3b Q4_K_M (2.1 GB). Japanese to " +
+                "English only, a few seconds per text box. It loads on the first translation and is freed after 10 " +
+                "minutes without one."
+        ))
+
+        val fallback = right.section("Translator page")
         val (urlField, _) = field("Translator URL", prefs.translateUrl, InputType.TYPE_TEXT_VARIATION_URI) {
             prefs.translateUrl = it.ifEmpty { Prefs.DEFAULT_TRANSLATE_URL }
         }
         fallback.addView(urlField)
-        fallback.addView(helper("Opens over the game when there's no key or the API call fails. {text} becomes the captured text."))
+        fallback.addView(helper(
+            "Opens over the game when neither DeepL nor the offline model can translate. {text} becomes the captured text."
+        ))
     }
 
     // ---- Service ----
@@ -976,7 +1032,10 @@ class MainActivity : Activity() {
                 when {
                     prefs.translateHotkey == KeyEvent.KEYCODE_UNKNOWN ->
                         Triple(true, "No translations", "Translate hotkey not set")
-                    prefs.deeplKey.isNotEmpty() -> Triple(false, "Translate text → DeepL", "Only when you press its hotkey")
+                    prefs.translateEngine == Prefs.TRANSLATE_DEEPL && prefs.deeplKey.isNotEmpty() ->
+                        Triple(false, "Translate text → DeepL", "Only when you press its hotkey")
+                    LocalTranslator.file(this).exists() && LocalTranslator.supported ->
+                        Triple(true, "Translations stay on this device", "Offline model")
                     else -> Triple(false, "Translate text → translator site", host(prefs.translateUrl, "Your URL template"))
                 },
                 if (prefs.dictionaryMode == Prefs.DICT_LOCAL && prefs.ankiModel >= 0) {
@@ -1236,7 +1295,19 @@ class MainActivity : Activity() {
         if (resultCode != RESULT_OK || data == null) return
         when (requestCode) {
             PICK_DATABASE -> data.data?.let { importDatabase(it) }
-            PICK_AUDIO -> data.data?.let { importAudio(it) }
+            PICK_AUDIO -> data.data?.let {
+                importFile(it, LocalAudio.file(applicationContext), audio, LocalAudio::validate)
+            }
+            PICK_MODEL -> data.data?.let { uri ->
+                val name = runCatching {
+                    contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                        if (c.moveToFirst()) c.getString(0) else null
+                    }
+                }.getOrNull() ?: ""
+                importFile(uri, LocalTranslator.file(applicationContext), model, LocalTranslator::validate) {
+                    prefs.translateModelName = name
+                }
+            }
             PICK_FONT -> {
                 val clip = data.clipData
                 importFonts(if (clip != null) (0 until clip.itemCount).map { clip.getItemAt(it).uri } else listOfNotNull(data.data))
@@ -1265,27 +1336,27 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Copies an audio database in, replacing the loaded one once it's checked. It's several GB, so the row shows how
-     * far the copy is and how it ended (a toast wouldn't last, and Android drops them while the app's notifications
-     * are off). The copy's state is the process's, so it survives the screen being rebuilt.
+     * Copies a large file in (audio database, translation model), replacing the loaded one once [validate] accepts it,
+     * then runs [loaded] on the copying thread. It's several GB, so the row shows how far the copy is and how it ended
+     * (a toast wouldn't last, and Android drops them while the app's notifications are off). The state is the
+     * process's, so it survives the screen being rebuilt.
      */
-    private fun importAudio(uri: Uri) {
-        if (audioCopy != null) return
+    private fun importFile(uri: Uri, target: File, state: Import, validate: (File) -> Unit, loaded: () -> Unit = {}) {
+        if (state.progress != null) return
         val app = applicationContext
-        val target = LocalAudio.file(app)
         val tmp = File(target.path + ".tmp")
         tmp.delete()
         fun gb(bytes: Long) = "%.1f".format(bytes / 1e9)
         val total = runCatching { contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } }.getOrNull() ?: -1
-        // The loaded database stays until the new one is checked, so its space doesn't count as free.
+        // The loaded file stays until the new one is checked, so its space doesn't count as free.
         val free = target.parentFile!!.usableSpace
         if (total > free) {
-            audioFailure = "Not enough space: it's ${gb(total)} GB, ${gb(free)} GB is free"
-            showAudio()
+            state.failure = "Not enough space: it's ${gb(total)} GB, ${gb(free)} GB is free"
+            state.changed?.invoke()
             return
         }
-        audioCopy = "Copying…"
-        showAudio()
+        state.progress = "Copying…"
+        state.changed?.invoke()
         val main = Handler(Looper.getMainLooper())
         Thread {
             val failure = runCatching {
@@ -1303,21 +1374,22 @@ class MainActivity : Activity() {
                                 shown = done
                                 val text = "Copying… ${gb(done)}" + (if (total > 0) " of ${gb(total)}" else "") + " GB"
                                 main.post {
-                                    audioCopy = text
-                                    audioChanged?.invoke()
+                                    state.progress = text
+                                    state.changed?.invoke()
                                 }
                             }
                         }
                     }
                 }
-                LocalAudio.validate(tmp)
-                if (!tmp.renameTo(target)) error("couldn't replace the old database")
+                validate(tmp)
+                if (!tmp.renameTo(target)) error("couldn't replace the old file")
+                loaded()
             }.exceptionOrNull()
             tmp.delete()
             main.post {
-                audioCopy = null
-                audioFailure = failure?.let { "Couldn't load it: ${it.message}" }
-                audioChanged?.invoke()
+                state.progress = null
+                state.failure = failure?.let { "Couldn't load it: ${it.message}" }
+                state.changed?.invoke()
             }
         }.start()
     }
@@ -1528,18 +1600,31 @@ class MainActivity : Activity() {
         return frame to edit
     }
 
-    companion object {
-        /** Progress of an audio database being copied in, or null when none is; then how it failed, if it did. */
-        private var audioCopy: String? = null
-        private var audioFailure: String? = null
+    /**
+     * A large file the settings copy in, picked with request code [pick]. Kept by the process, so a copy's progress
+     * outlives the screen. Main thread only.
+     */
+    private class Import(val pick: Int) {
+        /** How far a copy is, or null when none is running. */
+        var progress: String? = null
 
-        /** Redraws the audio row of the settings screen that's showing. Main thread only, like the two above. */
-        private var audioChanged: (() -> Unit)? = null
+        /** How the last copy failed, if it did. */
+        var failure: String? = null
+        var removeArmed = false
+
+        /** Redraws the file's row on the settings screen that's showing. */
+        var changed: (() -> Unit)? = null
+    }
+
+    companion object {
+        private val audio = Import(PICK_AUDIO)
+        private val model = Import(PICK_MODEL)
 
         private const val PICK_DATABASE = 1
         private const val PICK_FONT = 2
         private const val REQUEST_ANKI = 3
         private const val PICK_AUDIO = 4
+        private const val PICK_MODEL = 5
         private const val FONT_SAMPLE = "あア 直 漢字"
         private const val KEY_SECTION = "section"
         private const val REPO_URL = "https://github.com/aypro/ocrclip"

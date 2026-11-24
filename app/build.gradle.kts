@@ -17,6 +17,15 @@ android {
         ndk { abiFilters += "arm64-v8a" }
     }
 
+    // libllm.so: llama.cpp (the third_party/llama.cpp submodule) for the offline translation model.
+    ndkVersion = "29.0.14206865"
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.31.6"
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

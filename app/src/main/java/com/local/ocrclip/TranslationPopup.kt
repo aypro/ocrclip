@@ -17,8 +17,8 @@ import android.widget.TextView
 import java.util.Locale
 
 /**
- * Compact accessibility overlay with a DeepL translation above its source text, at the top or bottom edge
- * of the screen. Unlike [DictionaryOverlay] it never takes key focus, so the game keeps the gamepad; the
+ * Compact accessibility overlay with a translation (DeepL or the offline model) above its source text, at the top or
+ * bottom edge of the screen. Unlike [DictionaryOverlay] it never takes key focus, so the game keeps the gamepad; the
  * service's key filter still closes it on B, Back or a hotkey. Touches outside it reach the game and close it.
  */
 class TranslationPopup(
@@ -32,6 +32,7 @@ class TranslationPopup(
     private var root: View? = null
     private lateinit var source: TextView
     private lateinit var translation: TextView
+    private lateinit var note: TextView
 
     override val isShowing get() = root?.isAttachedToWindow == true
 
@@ -40,6 +41,7 @@ class TranslationPopup(
         val view = root ?: build().also { root = it }
         source.text = text
         translation.text = "…"
+        setNote(null)
         val params = WindowManager.LayoutParams(
             displaySize(windowManager).x, // not MATCH_PARENT, which can be the game screen's width on a second screen
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -53,6 +55,12 @@ class TranslationPopup(
 
     fun setTranslation(text: String) {
         translation.text = text
+    }
+
+    /** A small line under the translation saying where it came from (the offline model), or none. */
+    fun setNote(text: String?) {
+        note.text = text
+        note.visibility = if (text == null) View.GONE else View.VISIBLE
     }
 
     override fun hide() {
@@ -72,10 +80,17 @@ class TranslationPopup(
             textSize = 18f
             setTextColor(Color.WHITE)
         }
+        note = TextView(context).apply {
+            textSize = 12f
+            setPadding(0, dp(4), 0, 0)
+            setTextColor(0xFF8FB8DE.toInt())
+            visibility = View.GONE
+        }
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(padding, padding, padding, padding)
             addView(translation)
+            addView(note)
             addView(source)
         }
         // Grows with the text, but long passages scroll rather than hide the whole game.

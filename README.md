@@ -9,7 +9,7 @@ It runs as an accessibility service: hotkey → screenshot → optional crop to 
 - **Hotkey capture**: any button, Volume Up for example. While the hotkey is active, the game never sees that button.
 - **Two OCR engines**:
   - **On-device (ML Kit Japanese)**: offline and private, but less accurate on pixel fonts.
-  - **Google Lens**: much more accurate on PS1-era pixel fonts. It needs internet and sends the captured image to Google. It uses the same unofficial endpoint as Chrome's Lens overlay and [owocr](https://github.com/AuroraWright/owocr), so it may break without notice.
+  - **Google Lens**: much more accurate on PS1-era pixel fonts. It needs internet and sends the captured image to Google. Without a connection, captures are read on the device instead. It uses the same unofficial endpoint as Chrome's Lens overlay and [owocr](https://github.com/AuroraWright/owocr), so it may break without notice.
 - **Capture region**: drag a rectangle over the last screenshot so only the text box is read.
 - **After capture**:
   - **Just copy**: only copies the text.
@@ -20,7 +20,8 @@ It runs as an accessibility service: hotkey → screenshot → optional crop to 
 - **Dictionary URL template**: `{text}` is replaced with the captured text, e.g. `https://jisho.hlorenzi.com/search/{text}` (the default). The overlay adds ` OCRClip/1` to its user agent, so a self-hosted jisho can switch to a compact layout.
 - **Translate hotkey** (optional): a second button that reads the text the same way, then translates it with DeepL instead of opening the dictionary.
   - **With a DeepL API key** (the [free API plan](https://www.deepl.com/pro-api) covers 500,000 characters a month): a compact popup with the text and its translation appears at the top or bottom edge, whichever is away from the capture region. The game keeps the gamepad while it's open. B, Back, either hotkey or a tap closes it. The target language defaults to `EN-US`.
-  - **Without a key, or if the API call fails**: the DeepL web page opens over the game instead. The URL template defaults to `https://www.deepl.com/translator#ja/en/{text}`; change `en` to another language code (e.g. `de`), or point it at another translator.
+  - **Offline model** (Translate → Offline model): load a [CAT-Translate](https://huggingface.co/cyberagent/CAT-Translate-3.3b) GGUF, such as `CAT-Translate-3.3b` at Q4_K_M (2.1 GB), and the translation is made on the device instead, into English, streaming into the same popup. On the Retroid Pocket Nova that's about 1–2 s for a line and 4 s for a full text box; in testing a PS1 game in DuckStation kept a steady 60 fps meanwhile. Under **Translate with**, pick **DeepL** to use it only when DeepL fails or there's no connection, or **Offline model** to never call DeepL. It loads on the first translation and frees its memory (about 4 GB for the 3.3B) after 10 minutes without one. Needs an ARMv8.2 CPU with dot-product instructions, which every Retroid with Android 11 or later has.
+  - **When neither can translate**: the DeepL web page opens over the game instead. The URL template defaults to `https://www.deepl.com/translator#ja/en/{text}`; change `en` to another language code (e.g. `de`), or point it at another translator.
 - **Second screen** (Lookup → Second screen): with a second display attached, such as the Retroid Dual Screen Add-on on the Pocket Nova, the dictionary, the Yomitan lookup and translations show on it instead of over the game, and the game keeps the gamepad. Tap the page to pick words, scroll or add Anki cards; ‹ steps back after following a link, and ✕ (or a tap on the black area around a translation) clears the screen until the next capture. While the setting is on the add-on stays black instead of mirroring the game. Without a second display everything opens over the game as before. Brightness: the add-on's own side buttons; Android keeps it at full brightness.
 - **Survives reboots**: Retroid firmware turns off third-party accessibility services on every boot. With a one-time adb grant, OCR Clip turns itself back on.
 
@@ -89,7 +90,7 @@ When you tap **+**, the app looks for the word with the entry's reading, taking 
 
 ## Privacy
 
-The service only intercepts the hotkeys. It reads the screen only when you press one. The last screenshot stays in the app's cache, and only so the region picker has something to draw on. Nothing leaves the device unless you pick the Google Lens engine or a web dictionary, or use the translate hotkey (which sends the captured text to DeepL). The offline Yomitan lookup runs entirely on the device. Anki notes go to AnkiDroid on the device, only when you tap +; AnkiDroid's own sync takes them from there.
+The service only intercepts the hotkeys. It reads the screen only when you press one. The last screenshot stays in the app's cache, and only so the region picker has something to draw on. Nothing leaves the device unless you pick the Google Lens engine or a web dictionary, or use the translate hotkey with DeepL (which sends the captured text to DeepL; the offline model doesn't). The offline Yomitan lookup runs entirely on the device. Anki notes go to AnkiDroid on the device, only when you tap +; AnkiDroid's own sync takes them from there.
 
 ## License
 
