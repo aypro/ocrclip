@@ -1,0 +1,84 @@
+name: Linux
+
+# The desktop app (desktop/). Pushes to main check it when it or the files it shares with the Android app changed;
+# desktop-v* tags release it as a tarball. The Android app's v* tags don't match desktop-v*.
+on:
+  push:
+    branches: [main]
+    tags: ['desktop-v*']
+    paths:
+      - 'desktop/**'
+      - 'shared/**'
+      - 'LICENSE'
+      - '.github/workflows/linux.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # gh release create
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tags, for the release notes
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Version
+        run: |
+          version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' desktop/ocrclip_desktop/__init__.py)
+          if [[ "$GITHUB_REF" == refs/tags/desktop-v* && "$GITHUB_REF_NAME" != "desktop-v$version" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match __version__ $version in desktop/ocrclip_desktop/__init__.py"
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      # The parts that need no Qt: deinflection and the page, against the shared files.
+      - name: Check
+        working-directory: desktop
+        run: |
+          python -m py_compile ocrclip_desktop/*.py
+          python - <<'EOF'
+          from ocrclip_desktop.deinflector import Deinflector
+          from ocrclip_desktop import lookup_page
+          assert any(c.text == "食べる" for c in Deinflector().deinflect("食べなかった"))
+          html = lookup_page.page("食べなかった")
+          assert "OCRClip" in html and "function scanAt" in html and "#results" in html
+          print("ok")
+          EOF
+
+      # The package with the shared files inside it, so it runs without the rest of the repo.
+      - name: Package
+        run: |
+          dir="ocrclip-desktop-$VERSION"
+          mkdir -p "$dir"
+          cp -r desktop/ocrclip_desktop desktop/ocrclip-desktop desktop/ocrclip.service LICENSE README.md "$dir/"
+          cp -r shared "$dir/ocrclip_desktop/shared"
+          find "$dir" -name __pycache__ -prune -exec rm -rf {} +
+          tar czf "$dir.tar.gz" "$dir"
+          echo "TARBALL=$dir.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Check the package alone
+        run: |
+          tar xzf "$TARBALL" -C "$RUNNER_TEMP"
+          cd "$RUNNER_TEMP/ocrclip-desktop-$VERSION"
+          python -c "from ocrclip_desktop.config import SHARED; from ocrclip_desktop import lookup_page; \
+            assert SHARED.parent.name == 'ocrclip_desktop', SHARED; lookup_page.page('テスト'); print(SHARED)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.TARBALL }}
+          path: ${{ env.TARBALL }}
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # Notes from the previous desktop release, not from an Android one in between.
+        run: |
+          previous=$(git tag --list 'desktop-v*' --sort=-v:refname | grep -vxF "$GITHUB_REF_NAME" | head -n 1)
+          gh release create "$GITHUB_REF_NAME" "$TARBALL" --title "Linux ${GITHUB_REF_NAME#desktop-}" --generate-notes \
+            ${previous:+--notes-start-tag "$previous"}

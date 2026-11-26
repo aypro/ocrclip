@@ -378,7 +378,7 @@ class LocalDictionary(private val context: Context) {
 
         /**
          * Kana, kanji (with 々 〆 〇), the long vowel marks and full-width letters and digits (ＣＤ, Ｔシャツ): what
-         * dictionary terms are written with. Keep the page's JAPANESE regex in LookupPage in step.
+         * dictionary terms are written with. Keep the page's JAPANESE regex in shared/lookup.js in step.
          */
         fun isJapanese(cp: Int) = when (Character.UnicodeScript.of(cp)) {
             Character.UnicodeScript.HAN, Character.UnicodeScript.HIRAGANA, Character.UnicodeScript.KATAKANA -> true

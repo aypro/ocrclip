@@ -71,11 +71,11 @@ python tools/split_jmnedict.py JMnedict.zip BCCWJ.zip JMnedict-common-readings.z
 
 The app lists the dictionaries in the database. Untick one to stop using it, or reorder them with ▲▼. These settings are kept by dictionary name, so rebuilding the database on the PC (to add a dictionary, say) keeps them. Images inside dictionaries aren't included; their description is shown instead. Databases from before v0.4 still work, but Anki notes made with them come without the dictionaries' own styles; rebuild to get them.
 
-The deinflection rules in `app/src/main/assets/japanese-transforms.json` come from Yomitan. To update them:
+The deinflection rules in `shared/japanese-transforms.json` (used by both the Android and the desktop app) come from Yomitan. To update them:
 
 ```sh
 git clone --depth 1 https://github.com/yomidevs/yomitan.git
-python tools/export_yomitan_transforms.py yomitan app/src/main/assets/japanese-transforms.json
+python tools/export_yomitan_transforms.py yomitan shared/japanese-transforms.json
 ```
 
 ## Word audio for Anki cards
@@ -93,16 +93,16 @@ When you tap **+**, the app looks for the word with the entry's reading, taking 
 `desktop/` is OCR Clip for a Linux desktop (built for Omarchy/Hyprland). There's no hotkey: it watches your screenshots folder, and every new image is read and looked up. Take a screenshot in DuckStation (or with your desktop's screenshot tool), and a window opens with the text, the Yomitan lookup and the translation on top. The text goes to the clipboard too. It does the same as the Android app, with desktop parts:
 
 - **OCR**: Google Lens. When Lens can't be reached, [meikiocr](https://github.com/rtr46/meikiocr) (trained on video game text) reads it on the PC, run from the owocr uv tool's Python: `uv tool install 'owocr[screenai]' --with meikiocr`.
-- **Lookup**: the same page as the Android app, from the same `dict.db`. The page's CSS and script are read from `LookupPage.kt` and the deinflection rules from `app/src/main/assets`, so run it from a checkout of this repo. Click a character to look up from there; ←/→ step through the sentence; Esc steps back after following a link, then closes the window.
+- **Lookup**: the same page as the Android app (both load it from `shared/`), from the same `dict.db`. Click a character to look up from there; ←/→ step through the sentence; Esc steps back after following a link, then closes the window.
 - **Translation**: DeepL with your API key, or offline with the CAT-Translate GGUF through llama.cpp's `llama-server` (`sudo pacman -S llama-cpp ggml-vulkan`, or `ggml-cuda`). It's started on the first translation and stopped after 10 minutes without one.
 - **Anki**: desktop Anki with [AnkiConnect](https://ankiweb.net/shared/info/2055492159). Word audio comes from the Local Audio Server add-on in the same Anki, so no `android.db` is needed. Set `anki_model` (e.g. your Lapis note type) and optionally `anki_deck` and `anki_tags`.
 
-Needs Python 3 with PyQt6 and Qt WebEngine (`sudo pacman -S python-pyqt6 python-pyqt6-webengine`), `inotify-tools` and `wl-clipboard`. Run `desktop/ocrclip-desktop`. Settings live in `~/.config/ocrclip/settings.json` (written on first run): `watch_dir` (default `~/Pictures/Screenshots`), `dictionary` (path to `dict.db`), `deepl_key`, `translate_model` (default `~/.local/share/ocrclip/translate.gguf`), `region` (`[left, top, right, bottom]` as fractions), `crop_skip` and `skip` (file name globs: not cropped / ignored), `lookup_font` (a font name), and the rest named as in the Android app. The tray icon pauses it, picks the capture region over the last screenshot, and switches the OCR and translation engines. The same works from the command line, for a keybinding: `ocrclip-desktop toggle|pause|resume|show|hide|region|quit`. `ocrclip-desktop once <image>` reads one file.
+Needs Python 3 with PyQt6 and Qt WebEngine (`sudo pacman -S python-pyqt6 python-pyqt6-webengine`), `inotify-tools` and `wl-clipboard`. Download `ocrclip-desktop-<version>.tar.gz` from a Linux release (tags `desktop-v…`; Android releases are `v…`), unpack it somewhere to keep, such as `~/.local/share/ocrclip-desktop`, and run `ocrclip-desktop` from there. From a checkout of this repo, run `desktop/ocrclip-desktop`. Settings live in `~/.config/ocrclip/settings.json` (written on first run): `watch_dir` (default `~/Pictures/Screenshots`), `dictionary` (path to `dict.db`), `deepl_key`, `translate_model` (default `~/.local/share/ocrclip/translate.gguf`), `region` (`[left, top, right, bottom]` as fractions), `crop_skip` and `skip` (file name globs: not cropped / ignored), `lookup_font` (a font name), and the rest named as in the Android app. The tray icon pauses it, picks the capture region over the last screenshot, and switches the OCR and translation engines. The same works from the command line, for a keybinding: `ocrclip-desktop toggle|pause|resume|show|hide|region|quit`. `ocrclip-desktop once <image>` reads one file.
 
-To start it with the session, use the systemd user unit:
+To start it with the session, use the systemd user unit. From the unpacked release folder (in a checkout, use `desktop/ocrclip.service` and `$PWD/desktop`):
 
 ```sh
-sed "s|@DIR@|$PWD/desktop|" desktop/ocrclip.service > ~/.config/systemd/user/ocrclip.service
+sed "s|@DIR@|$PWD|" ocrclip.service > ~/.config/systemd/user/ocrclip.service
 systemctl --user daemon-reload && systemctl --user enable --now ocrclip
 ```
 

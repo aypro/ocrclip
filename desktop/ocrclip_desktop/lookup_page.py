@@ -1,7 +1,7 @@
 """
 The lookup page: the captured text, clickable per character, above the entries found from the character picked, with
-the translation on top. A port of LookupPage.kt's rendering. The page's CSS and script are read from LookupPage.kt
-itself, so the two apps never drift apart; only a bridge shim and the translation strip are added here.
+the translation on top. A port of LookupPage.kt's rendering. The page's CSS and script are shared/lookup.css and
+shared/lookup.js, the files the Android app shows; only a bridge shim and the translation strip are added here.
 """
 
 import copy
@@ -11,9 +11,7 @@ import re
 from functools import cache
 from urllib.parse import unquote
 
-from .config import REPO
-
-LOOKUP_PAGE_KT = REPO / "app/src/main/java/com/local/ocrclip/LookupPage.kt"
+from .config import SHARED
 
 TAGS = {"ruby", "rt", "rp", "table", "thead", "tbody", "tfoot", "tr", "td", "th", "span", "div", "ol", "ul", "li",
         "details", "summary"}
@@ -23,13 +21,8 @@ SMALL_KANA = "ゃゅょぁぃぅぇぉゎャュョァィゥェォヮ"
 
 
 @cache
-def _kotlin(name: str) -> str:
-    """A `private const val NAME = \"\"\"…\"\"\"` from LookupPage.kt (they hold no `$` templates)."""
-    source = LOOKUP_PAGE_KT.read_text()
-    match = re.search(rf'private const val {name} = """(.*?)"""', source, re.S)
-    if not match:
-        raise RuntimeError(f"{name} not found in {LOOKUP_PAGE_KT}")
-    return match.group(1)
+def _shared(name: str) -> str:
+    return (SHARED / name).read_text(encoding="utf-8")
 
 
 # The translation strip above the captured text, both sticky together. #text loses its own stickiness for that.
@@ -98,12 +91,12 @@ body {{ font-family: OCRClipJa, sans-serif; }}
 """
     return f"""<!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<style>{_kotlin("CSS")}{DESKTOP_CSS}{font_css}</style></head>
+<style>{_shared("lookup.css")}{DESKTOP_CSS}{font_css}</style></head>
 <body><div id="top"><div id="translation"><div class="text"></div><div class="note"></div></div><div id="text"></div></div><div id="results"></div>
 <script>
 const text = {json.dumps(text, ensure_ascii=False).replace("</", "<\\/")};
 {SHIM}
-{_kotlin("SCRIPT")}
+{_shared("lookup.js")}
 </script></body></html>"""
 
 

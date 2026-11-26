@@ -418,7 +418,7 @@ class OcrService : AccessibilityService() {
             localDictionary.ankiExisting = if (ankiReady) ::existingInAnki else null
             val font = prefs.lookupFont
             val fontVersion = font?.let { "${it.name.hashCode()}-${it.lastModified()}" }
-            lookup.showPage(LookupPage.page(text, fontVersion, panel = screen.panel))
+            lookup.showPage(LookupPage.page(this, text, fontVersion, panel = screen.panel))
             return
         }
         screen.only(screen.dictionary)

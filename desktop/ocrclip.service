@@ -1,5 +1,6 @@
-# OCR Clip for the Linux desktop. Install with (from the repo root):
-#   sed "s|@DIR@|$PWD/desktop|" desktop/ocrclip.service > ~/.config/systemd/user/ocrclip.service
+# OCR Clip for the Linux desktop. Install with, from the unpacked release (or $PWD/desktop and
+# desktop/ocrclip.service from a repo checkout):
+#   sed "s|@DIR@|$PWD|" ocrclip.service > ~/.config/systemd/user/ocrclip.service
 #   systemctl --user daemon-reload && systemctl --user enable --now ocrclip
 [Unit]
 Description=OCR Clip: look up the Japanese in new screenshots

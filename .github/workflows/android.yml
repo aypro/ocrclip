@@ -1,9 +1,19 @@
-name: Build
+name: Android
 
+# Pushes to main build an APK only when the Android app or what it packs changed. v* tags are Android releases;
+# the desktop app's are desktop-v* (linux.yml), which v* doesn't match.
 on:
   push:
     branches: [main]
     tags: ['v*']
+    paths:
+      - 'app/**'
+      - 'shared/**'
+      - 'third_party/**'
+      - 'gradle/**'
+      - '*.gradle.kts'
+      - 'gradle.properties'
+      - '.github/workflows/android.yml'
   workflow_dispatch:
 
 jobs:
@@ -15,6 +25,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: true # third_party/llama.cpp, for the offline translation model
+          fetch-depth: 0 # tags, for the release notes
 
       - uses: actions/setup-java@v4
         with:
@@ -52,4 +63,8 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" "$APK" --generate-notes
+        # Notes from the previous Android release, not from a desktop one in between.
+        run: |
+          previous=$(git tag --list 'v*' --sort=-v:refname | grep -vxF "$GITHUB_REF_NAME" | head -n 1)
+          gh release create "$GITHUB_REF_NAME" "$APK" --title "Android $GITHUB_REF_NAME" --generate-notes \
+            ${previous:+--notes-start-tag "$previous"}

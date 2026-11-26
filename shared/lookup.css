@@ -1,0 +1,43 @@
+body { margin: 0; background: #000; color: #eee; font: 18px/1.5 sans-serif; }
+/* z-index: dictionary styles make stacking contexts (Jitendex clip-path icons) that would paint over the sticky text. */
+#text { position: sticky; top: 0; z-index: 1; background: #000; padding: 8px 12px; font-size: 26px; line-height: 1.7;
+    border-bottom: 1px solid #444; max-height: 35vh; overflow-y: auto; }
+#text span.match { background: #2d4f6c; }
+#text span.cursor { box-shadow: inset 0 -3px #6cb4ff; }
+#results { padding: 0 12px 24px; }
+.entry { border-bottom: 1px solid #333; padding: 10px 0; }
+.head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.term { font-size: 30px; }
+rt { font-size: 14px; color: #aaa; }
+.reasons { color: #9ab; font-size: 15px; }
+.dict { margin-top: 6px; color: #8c8; font-size: 14px; }
+ol, ul { margin: 2px 0; padding-left: 24px; }
+li { white-space: pre-line; }
+.entry > ol > li { clear: right; } /* a one-line definition is shorter than its + button */
+.tag { display: inline-block; background: #444; border-radius: 3px; padding: 0 5px; margin-right: 4px; font-size: 13px; }
+.freq { font-size: 14px; background: #333; border-radius: 3px; padding: 0 6px; }
+.freq b { font-weight: normal; color: #aaa; margin-right: 4px; }
+.pitch { font-size: 16px; }
+.pitch .h { border-top: 1px solid #e88; }
+.pitch .d { border-right: 1px solid #e88; }
+.pitch .n { color: #aaa; margin-left: 3px; font-size: 13px; }
+.kanji { font-size: 48px; }
+.readings { color: #ccc; }
+.img { color: #aaa; font-style: italic; }
+.link { text-decoration: underline; }
+.link[data-q] { color: #6cb4ff; cursor: pointer; }
+.add { float: right; min-width: 40px; height: 32px; margin: 0 0 4px 10px; border-radius: 16px; background: #2d4f6c;
+    color: #fff; text-align: center; font-size: 22px; line-height: 32px; cursor: pointer; white-space: nowrap; }
+.add.sense { min-width: 32px; height: 26px; border-radius: 13px; font-size: 18px; line-height: 26px; }
+.sense-add { clear: right; }
+.add.busy { opacity: 0.6; }
+.add.done { background: #2e5d3a; }
+.add.dup { background: #2e5d3a; opacity: 0.75; }
+.add.armed { background: #8a6418; opacity: 1; }
+#notice { position: fixed; z-index: 2; left: 0; right: 0; bottom: 16px; margin: 0 auto; width: fit-content; max-width: 90%; padding: 8px 16px;
+    border-radius: 18px; background: #333; color: #fff; font-size: 18px; text-align: center; opacity: 0;
+    transition: opacity 0.2s; pointer-events: none; }
+#notice.on { opacity: 0.95; }
+table { border-collapse: collapse; }
+td, th { border: 1px solid #555; padding: 2px 6px; }
+.message { padding: 16px 0; color: #aaa; }

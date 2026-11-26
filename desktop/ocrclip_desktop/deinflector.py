@@ -1,17 +1,16 @@
 """
 Undoes Japanese inflections (食べなかった → 食べる) with Yomitan's rules, applied the way Yomitan's LanguageTransformer
-applies them; a port of Deinflector.kt. The rules are the Android app's assets/japanese-transforms.json (Yomitan's,
-Copyright (C) 2024-2026 Yomitan Authors, GPL-3.0-or-later), read in place so both apps share one copy.
+applies them; a port of Deinflector.kt. The rules are shared/japanese-transforms.json, which the Android app packs as an
+asset (Yomitan's, Copyright (C) 2024-2026 Yomitan Authors, GPL-3.0-or-later).
 """
 
 import json
-import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from .config import REPO
+from .config import SHARED
 
-TRANSFORMS = Path(os.environ.get("OCRCLIP_TRANSFORMS", REPO / "app/src/main/assets/japanese-transforms.json"))
+TRANSFORMS = SHARED / "japanese-transforms.json"
 
 
 @dataclass(frozen=True)

@@ -10,8 +10,11 @@ DATA_DIR = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) /
 CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "ocrclip"
 FILE = CONFIG_DIR / "settings.json"
 
-# The Android app's repo, for the deinflection rules it shares with this one.
-REPO = Path(__file__).resolve().parents[2]
+# The lookup page's CSS and script and the deinflection rules, shared with the Android app: inside the package in a
+# release, the repo's shared/ in a checkout.
+_PACKAGED = Path(__file__).resolve().parent / "shared"
+SHARED = Path(os.environ.get("OCRCLIP_SHARED") or
+              (_PACKAGED if _PACKAGED.is_dir() else Path(__file__).resolve().parents[2] / "shared"))
 
 
 def _pictures() -> Path:

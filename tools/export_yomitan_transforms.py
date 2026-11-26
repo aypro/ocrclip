@@ -2,7 +2,7 @@
 """Exports Yomitan's Japanese deinflection rules as JSON for the app's local dictionary lookup.
 
     git clone --depth 1 https://github.com/yomidevs/yomitan.git
-    python tools/export_yomitan_transforms.py yomitan app/src/main/assets/japanese-transforms.json
+    python tools/export_yomitan_transforms.py yomitan shared/japanese-transforms.json
 
 The rules are Yomitan's (GPL-3.0-or-later, Copyright (C) 2024-2026 Yomitan Authors), only converted to data so they
 can be refreshed from upstream instead of maintained by hand. japanese-transforms.js is parsed as text rather than run,

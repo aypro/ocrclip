@@ -26,6 +26,13 @@ android {
         }
     }
 
+    // shared/: the lookup page's CSS and script and the deinflection rules, which the desktop app in desktop/ uses too.
+    sourceSets {
+        getByName("main") {
+            assets.srcDir("../shared")
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
