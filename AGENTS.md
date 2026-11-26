@@ -67,11 +67,11 @@ Each app has its own workflow and its own release tags, so they're built and rel
 - `.github/workflows/android.yml` builds the debug APK on pushes to `main` that change `app/`, `shared/`, `third_party/` or the Gradle files, and uploads it as an Actions artifact. A pushed `v*` tag also creates a GitHub release "Android vX.Y" with the APK attached.
 - `.github/workflows/linux.yml` checks the desktop app (byte-compiles it and runs the deinflector and page against `shared/`, no Qt needed) on pushes to `main` that change `desktop/` or `shared/`, and builds `ocrclip-desktop-<version>.tar.gz` (the package with `shared/` copied into it, the launcher, the service file, README and LICENSE). A pushed `desktop-v*` tag also creates a release "Linux vX.Y" with the tarball. `v*` doesn't match `desktop-v*`, so neither tag starts the other workflow.
 
-The Android workflow The workflow signs with the debug keystore the owner's local Gradle uses, `~/.config/.android/debug.keystore` (`XDG_CONFIG_HOME` is set, so not `~/.android/`), stored base64-encoded in the repo secret `DEBUG_KEYSTORE_BASE64`. That way CI builds install over locally built ones; a different key would force an uninstall, which wipes settings and the `WRITE_SECURE_SETTINGS` grant.
+The Android workflow signs with the debug keystore the owner's local Gradle uses, `~/.config/.android/debug.keystore` (`XDG_CONFIG_HOME` is set, so not `~/.android/`), stored base64-encoded in the repo secret `DEBUG_KEYSTORE_BASE64`. That way CI builds install over locally built ones; a different key would force an uninstall, which wipes settings and the `WRITE_SECURE_SETTINGS` grant.
 
 To release Android: bump `versionCode` and `versionName` in `app/build.gradle.kts`, commit, then `git tag vX.Y && git push origin main vX.Y`. The tag must match `versionName`.
 
-To release Linux: bump `__version__` in `desktop/ocrclip_desktop/__init__.py`, commit, then `git tag desktop-vX.Y.Z && git push origin main desktop-vX.Y.Z`. The workflow fails if the tag doesn't match `__version__`.
+To release Linux: bump `__version__` in `desktop/ocrclip_desktop/__init__.py`, commit, then `git tag desktop-v<version> && git push origin main desktop-v<version>` (e.g. `desktop-v0.1`). The workflow fails if the tag doesn't match `__version__`.
 
 ## Testing on a device
 
