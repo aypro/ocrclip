@@ -37,6 +37,8 @@ DEFAULTS = {
     "dictionary_order": [],
     "disabled_dictionaries": [],
     "translate_engine": "deepl",  # deepl / offline
+    "translate": "auto",  # auto: every capture; on_demand: when the strip's link or translate_key is used
+    "translate_key": "T",  # a Qt key sequence, e.g. "T", "Ctrl+T", "F2"
     "translate_model": str(DATA_DIR / "translate.gguf"),
     "llama_server": "llama-server",
     "deepl_key": "",

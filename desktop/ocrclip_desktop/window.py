@@ -46,9 +46,12 @@ def utf16_length(text: str) -> int:
 class Session:
     """One capture as the lookup page shows it: the text, its screenshot, and the result the + buttons point into."""
 
-    def __init__(self, text: str = "", screenshot=None):
+    def __init__(self, text: str = "", screenshot=None, request: int = 0, lens_skipped: bool = False):
         self.text = text
         self.screenshot = screenshot
+        self.request = request
+        self.lens_skipped = lens_skipped  # for the translation's note
+        self.translated = False  # started, so the link and the key don't start it twice
         self.shown: Result | None = None
         self.history = 0
 
@@ -119,6 +122,10 @@ class Bridge(QWebEngineUrlSchemeHandler):
         if method == "addToAnki":
             return json.dumps(self.app.add_to_anki(session, args["entry"], args["definition"], args["sense"],
                                                    args["offset"]))
+        if method == "translate":
+            # After this request has been answered: translating touches the page, which is waiting on it.
+            self.app.on_main(self.app.translate_now)
+            return "{}"
         if method == "open":
             url = args["url"]
             if url.startswith(("https://", "http://")):
@@ -165,6 +172,8 @@ class LookupWindow(QWidget):
         layout.addWidget(self.view)
         self.setStyleSheet("background: black;")
         QShortcut(QKeySequence(Qt.Key.Key_Escape), self, self.escape)
+        self.translate_shortcut = None
+        self.set_translate_key(app.config["translate_key"])
         self.loads = 0
         self.ready = False
         self.pending = []
@@ -192,6 +201,24 @@ class LookupWindow(QWidget):
 
     def set_note(self, note: str):
         self.run(f"setNote({json.dumps(note)})")
+
+    def set_translate_key(self, key: str):
+        if self.translate_shortcut is not None:
+            self.translate_shortcut.setEnabled(False)
+            self.translate_shortcut.deleteLater()
+        sequence = QKeySequence(key or "")
+        self.translate_shortcut = None
+        if not sequence.isEmpty():
+            self.translate_shortcut = QShortcut(sequence, self, self.app.translate_now)
+
+    def translate_key_label(self) -> str:
+        sequence = QKeySequence(self.app.config["translate_key"] or "")
+        return sequence.toString(QKeySequence.SequenceFormat.NativeText)
+
+    def offer_translation(self):
+        """On-demand mode: the strip shows a link that translates (and says which key does)."""
+        key = self.translate_key_label()
+        self.run(f"setTranslateLink({json.dumps(f'Translate ({key})' if key else 'Translate')})")
 
     def set_translator(self, url: str):
         self.run(f"setTranslator({json.dumps(url)}, {json.dumps('Open the translator page')})")

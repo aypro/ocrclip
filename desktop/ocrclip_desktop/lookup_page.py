@@ -64,6 +64,7 @@ const OCRClip = (() => {
         },
         setHistory: (depth) => { call('setHistory', { depth }); },
         open: (url) => { call('open', { url }); },
+        translate: () => { call('translate', {}); },
     };
 })();
 const translation = document.getElementById('translation');
@@ -71,6 +72,15 @@ const translationText = translation.querySelector('.text');
 const translationNote = translation.querySelector('.note');
 function setTranslation(t) { translationText.textContent = t; translation.classList.add('on'); }
 function setNote(n) { translationNote.textContent = n; translation.classList.add('on'); }
+function setTranslateLink(label) {
+    translationText.textContent = '';
+    translationNote.textContent = '';
+    const a = document.createElement('a');
+    a.textContent = label;
+    a.onclick = () => OCRClip.translate();
+    translationText.appendChild(a);
+    translation.classList.add('on');
+}
 function setTranslator(url, label) {
     translationText.textContent = '';
     const a = document.createElement('a');

@@ -208,9 +208,20 @@ class App(QObject):
             except (OSError, subprocess.SubprocessError) as e:
                 print(f"ocrclip: wl-copy: {e}")
         self.config["last_result"] = text
-        self.session = Session(text, path)
+        self.session = Session(text, path, request, lens_skipped)
         self.window.show_page(lookup_page.page(text, self.config["lookup_font"]))
-        self._translate(text, request, lens_skipped)
+        if self.config["translate"] == "on_demand":
+            self.window.offer_translation()
+        else:
+            self.translate_now()
+
+    def translate_now(self):
+        """Translates the capture the window shows, once: at once in auto mode, from the link or key on demand."""
+        s = self.session
+        if not s.text or s.translated or s.request != self.request or not self.window.isVisible():
+            return
+        s.translated = True
+        self._translate(s.text, s.request, s.lens_skipped)
 
     # Translation, as OcrService.translate: DeepL with the offline model as its fallback, or the offline model alone
 
@@ -401,7 +412,8 @@ class App(QObject):
         self.choices = {}
         for key, title, options in (
                 ("engine", "OCR", (("lens", "Google Lens"), ("local", "On-device (meikiocr)"))),
-                ("translate_engine", "Translate with", (("deepl", "DeepL"), ("offline", "Offline model")))):
+                ("translate_engine", "Translate with", (("deepl", "DeepL"), ("offline", "Offline model"))),
+                ("translate", "Translate", (("auto", "Every screenshot"), ("on_demand", "On demand")))):
             sub = menu.addMenu(title)
             group = QActionGroup(sub)
             for value, label in options:
@@ -430,6 +442,8 @@ class App(QObject):
         self.config.reload_if_changed()
 
     def _config_changed(self, key):
+        if key == "translate_key":
+            self.window.set_translate_key(self.config["translate_key"])
         if key == "enabled":
             self.pause_action.setChecked(not self.config["enabled"])
             self.tray.setToolTip("OCR Clip" + ("" if self.config["enabled"] else " (paused)"))
