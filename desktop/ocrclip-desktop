@@ -1,0 +1,4 @@
+#!/bin/sh
+# OCR Clip for Omarchy: watches the screenshots folder and looks up the Japanese in each new screenshot.
+here=$(dirname "$(readlink -f "$0")")
+PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m ocrclip_desktop "$@"

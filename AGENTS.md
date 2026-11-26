@@ -33,6 +33,22 @@ Single module, `app/`, package `com.local.ocrclip`, plus one native library (`ap
 
 The project is GPL-3.0-or-later (`LICENSE`) because it includes Yomitan's deinflection rules.
 
+### Desktop (`desktop/`)
+
+A Python 3 + PyQt6/Qt WebEngine port for a Linux desktop (Omarchy/Hyprland), triggered by new files in a screenshots folder instead of a hotkey. System Python and system PyQt6 only, standard library otherwise; no venv. Run `desktop/ocrclip-desktop`; settings in `~/.config/ocrclip/settings.json` (Prefs' keys where they apply). It runs from the repo checkout: `lookup_page.py` reads `CSS` and `SCRIPT` out of `LookupPage.kt` (they must stay free of `$` templates) and `deinflector.py` reads `app/src/main/assets/japanese-transforms.json`, so the page and the rules are shared. When `LookupPage.kt`'s rendering (`results`, structured content, senses, `ankiGlossary`, `scopeCss`) or `LocalDictionary`/`AnkiNote` logic changes, port the change to the matching Python module.
+
+| File | Role |
+|---|---|
+| `app.py` | `App`: `inotifywait` (close_write, moved_to) on `watch_dir` → crop (`region`, not for `crop_skip` names) → Lens, or the offline worker when Lens is unreachable or `engine` is `local` → `format_lines` (`OcrService.format`) → `wl-copy` → lookup window and translation (DeepL, offline model, or the translator link; same notes as the popup). A newer screenshot makes older results go unused (`request`). Tray menu, `QLocalServer` commands (`once`, `toggle`, `show`, `hide`, `region`, `quit`), Anki note assembly. Failures go to `notify-send`. |
+| `window.py` | The lookup window (`QWebEngineView`, Wayland app id `ocrclip`) and `Bridge`, the `ocrclip://` scheme handler: `/page` is the page, `/api/<method>?q=<json>` are the `OCRClip` calls, answered synchronously because the page's shim uses sync XHR (QWebChannel is async-only and would need the shared script rewritten). Offsets from the page are UTF-16 and converted (`utf16_to_index`). |
+| `lookup_page.py`, `dictionary.py`, `deinflector.py`, `anki_note.py`, `deepl.py`, `lens.py` | Ports of `LookupPage.kt`, `LocalDictionary.kt`, `Deinflector.kt`, `AnkiNote.kt`, `DeepL.kt`, `LensOcr.kt`. The page gets a `#translation` strip and the `OCRClip` shim on top of the shared script. |
+| `anki.py` | AnkiConnect (`findNotes`/`notesInfo` for the ✓ marks, `storeMediaFile`, `addNote` with duplicates allowed since the page confirms them) and word audio from the Local Audio Server add-on's HTTP API (first source). |
+| `offline_ocr.py`, `ocr_worker.py` | meikiocr in a worker process under another interpreter (`offline_ocr_python`, default the owocr uv tool's Python with meikiocr added), JSON lines over stdin/stdout, stopped after 10 idle minutes. `ocr_worker.py` must not import from the package. |
+| `translate.py` | `llama-server` (`llama_server`, `translate_model`) as a child process on a free port, started on first use, checked like `LocalTranslator.validate` via `/props`, streamed from `/completion` with the same prompt, stopped after 10 idle minutes. |
+| `region.py` | Region picker over the last screenshot. |
+
+Testing: run with `--offline` to skip Lens and DeepL. Point `watch_dir` at a scratch folder and `cp` screenshots in, or `ocrclip-desktop once <file>`. There are no tests.
+
 ## Build
 
 ```sh
