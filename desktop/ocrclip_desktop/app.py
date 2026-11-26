@@ -31,6 +31,10 @@ from .translate import LocalTranslator
 from .window import LookupWindow, Session, utf16_to_index
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+# Anki is synced this long after the last card added, so a run of cards makes one sync, and never sooner than
+# SYNC_INTERVAL after the previous one, to go easy on AnkiWeb.
+SYNC_DELAY = 120
+SYNC_INTERVAL = 600
 SPACE_BETWEEN_CJK = re.compile(r"(?<=[^\x00-\x7F])\s+(?=[^\x00-\x7F])")
 SERVER_NAME = f"ocrclip-{os.getuid()}"
 
@@ -76,6 +80,11 @@ class App(QObject):
         self.request = 0
         self.recent = {}  # path -> time handled, against double events for one file
         self.picker = None
+        self.last_sync = None  # monotonic time of the last sync started
+        self.syncing = False
+        self.sync_timer = QTimer(self)
+        self.sync_timer.setSingleShot(True)
+        self.sync_timer.timeout.connect(self._sync_anki)
         self.quitting = False
         self.restarting_watcher = False
 
@@ -333,7 +342,48 @@ class App(QObject):
             return {"error": str(x)}
         except Exception as x:
             return {"error": f"Anki: {x}"}
+        self.on_main(self._schedule_sync)
         return {"notice": notice} if notice else {}
+
+    def _schedule_sync(self):
+        """(Re)starts the countdown to a sync, so cards reach AnkiWeb (and AnkiDroid) without waiting for Anki to close."""
+        if not self.config["anki_sync"]:
+            return
+        delay = SYNC_DELAY
+        if self.last_sync is not None:
+            delay = max(delay, self.last_sync + SYNC_INTERVAL - time.monotonic())
+        self.sync_timer.start(int(delay * 1000))
+
+    def _sync_anki(self):
+        if self.syncing:  # still going; the cards added since get the next one
+            self.sync_timer.start(SYNC_DELAY * 1000)
+            return
+        self.syncing = True
+        self.last_sync = time.monotonic()
+
+        def run():
+            try:
+                self.anki.sync()
+                print("ocrclip: Anki synced")
+                failure = None
+            except AnkiError as e:
+                failure = str(e)
+            except Exception as e:
+                failure = f"Anki: {e}"
+
+            def done():
+                self.syncing = False
+                if failure is None:
+                    return
+                print(f"ocrclip: Anki sync failed: {failure}")
+                # Anki also syncs when it next opens or closes, so the cards aren't lost, only later.
+                if "didn't answer in time" in failure:
+                    notify("Anki's sync didn't finish. It may be asking whether to upload or download: "
+                           "open Anki (Super+S)")
+                else:
+                    notify(f"Anki sync failed: {failure}. Anki syncs again when it opens or closes")
+            self.on_main(done)
+        threading.Thread(target=run, daemon=True).start()
 
     # Tray, commands, settings
 

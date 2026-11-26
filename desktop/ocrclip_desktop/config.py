@@ -47,6 +47,7 @@ DEFAULTS = {
     "anki_model": "",
     "anki_deck": "",
     "anki_tags": "ocrclip",
+    "anki_sync": True,  # sync Anki with AnkiWeb a little after cards are added
     "anki_connect": "http://127.0.0.1:8765",
     "local_audio": "http://127.0.0.1:5050",
     "region": None,  # [left, top, right, bottom] as fractions of the image

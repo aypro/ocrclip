@@ -10,6 +10,9 @@ import urllib.parse
 import urllib.request
 
 
+SYNC_TIMEOUT = 300
+
+
 class AnkiError(Exception):
     pass
 
@@ -22,18 +25,27 @@ class Anki:
     def __init__(self, config):
         self.config = config
 
-    def invoke(self, action: str, **params):
+    def invoke(self, action: str, timeout: float = 10, **params):
         body = json.dumps({"action": action, "version": 6, "params": params}).encode()
         request = urllib.request.Request(self.config["anki_connect"], data=body,
                                          headers={"Content-Type": "application/json"})
         try:
-            with urllib.request.urlopen(request, timeout=10) as response:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
                 reply = json.loads(response.read())
-        except (urllib.error.URLError, ConnectionError, TimeoutError) as e:
+        except TimeoutError as e:  # connected, but no answer in time
+            raise AnkiError("Anki didn't answer in time") from e
+        except (urllib.error.URLError, ConnectionError) as e:
+            if isinstance(getattr(e, "reason", None), TimeoutError):
+                raise AnkiError("Anki didn't answer in time") from e
             raise AnkiError("Anki isn't running (AnkiConnect can't be reached)") from e
         if reply.get("error"):
             raise AnkiError(reply["error"])
         return reply.get("result")
+
+    def sync(self):
+        """Anki's own sync with AnkiWeb, collection and media. Blocks until it's done."""
+        # A full sync waits for the user to pick upload or download in Anki's window, hence the long wait.
+        self.invoke("sync", timeout=SYNC_TIMEOUT)
 
     @property
     def ready(self) -> bool:
